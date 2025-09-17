@@ -4,8 +4,8 @@ import { CodeErrorAnalyzer } from "../code_error_analyzer";
 
 // 1) Memory extension: adds safe writes and optional onError callback, keeping base behavior intact
 export class ResilientMemoryBuffer extends MemoryBuffer {
-  constructor(maxSize: number = 100, private onError?: (err: unknown) => void) {
-    super(maxSize);
+  constructor(maxSize: number = 100, onError?: (err: unknown) => void) {
+    super(maxSize, onError);
   }
 
   // Non-throwing add that returns a boolean indicating success

@@ -172,7 +172,7 @@ interface MemoryStore {
 class MemoryBuffer implements MemoryStore {
   private buffer: Array<{ envelope: string, timestamp: string }>;
   private maxSize: number;
-  private onError?: (err: unknown) => void;
+  protected onError?: (err: unknown) => void;
 
   constructor(maxSize: number = 100, onError?: (err: unknown) => void) {
     this.buffer = [];
