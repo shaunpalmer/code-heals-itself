@@ -58,11 +58,12 @@ Instead of binary success/failure, our system measures **error deltas** - the ma
 - **Error Classification**: Syntax, logic, runtime, security error detection
 - **Custom Dashboards**: Visualize debugging effectiveness
 
-### 🔧 **Developer Experience**
-- **One-Command Setup**: Get started in under 5 minutes
-- **Extensible Architecture**: Plugin system for custom analyzers and fixers
-- **Comprehensive Testing**: 59 test cases covering edge cases
-- **Rich Documentation**: Tutorials, API docs, and contribution guides
+### � **LangChain Integration & Memory Mirroring**
+
+- **Reflection & Sync Layer**: Seamless integration with LangChain's reflection system that syncs our communication envelopes with LangChain's memory buffers
+- **Memory Mirroring**: Bidirectional synchronization between our gradient-based memory and LangChain's conversational memory
+- **Buffer Reflection**: Real-time mirroring of error deltas and confidence scores into LangChain's context window
+- **Unified Orchestration**: Single interface that orchestrates both gradient debugging and LangChain's advanced reasoning capabilities
 
 ---
 
