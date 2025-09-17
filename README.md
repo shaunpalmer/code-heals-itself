@@ -2,7 +2,7 @@
 
 **The Future of AI-Assisted Development: Gradient-Based Code Healing That Actually Learns**
 
-**The Future of AI-Assisted Development: Gradient-Based Code Healing That Actually Learns**
+
 
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
