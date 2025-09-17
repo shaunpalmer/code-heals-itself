@@ -1,0 +1,63 @@
+{
+  "name": "@selfhealing/debugger",
+  "version": "0.1.0",
+  "description": "Self-Healing Debugger Runtime",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "selfheal": "dist/cli/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -w",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
+    "test:ts": "jest",
+    "test:py": "python tests/py/test_patch_envelope.py",
+    "test:php": "echo 'PHP not installed - skipping PHP tests'",
+    "validate:all": "npm run test:ts && npm run test:py && npm run test:php",
+    "validate:schemas": "npm run test:ts",
+    "check:schemas": "node scripts/check-schemas.js"
+  },
+  "dependencies": {
+    "@agent-infra/logger": "^0.0.2-beta.2",
+    "@langchain/core": "^0.3.76",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.5",
+    "ora": "^5.4.1"
+  },
+  "optionalDependencies": {
+    "boxen": "^7.1.1",
+    "cli-highlight": "^2.1.11",
+    "cli-truncate": "^2.1.0",
+    "figures": "^3.2.0",
+    "log-update": "^4.0.0",
+    "string-width": "^4.2.3"
+  },
+  "devDependencies": {
+    "@types/ajv": "^0.0.5",
+    "@types/inquirer": "^8.2.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "22.15.30",
+    "ajv": "^8.17.1",
+    "jest": "^30.1.3",
+    "ts-jest": "^29.4.2",
+    "typescript": "^5.5.3"
+  }
+}

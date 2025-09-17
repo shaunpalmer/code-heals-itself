@@ -1,0 +1,621 @@
+// ai-debugging.ts
+import {
+  UnifiedConfidenceScorer, DualCircuitBreaker, ErrorType, ConfidenceScore
+} from "./utils/typescript/confidence_scoring";
+import {
+  CascadingErrorHandler, SandboxExecution, Environment
+} from "./utils/typescript/cascading_error_handler";
+import { AIPatchEnvelope, PatchEnvelope, MemoryBuffer, ResilientMemoryBuffer } from "./utils/typescript/envelope";
+import { Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy } from "./utils/typescript/strategy";
+import { SeniorDeveloperSimulator } from "./utils/typescript/human_debugging";
+import { TrendAwareCircuitBreaker } from "./utils/typescript/trend_aware_circuit_breaker";
+import { CodeErrorAnalyzer } from "./utils/typescript/code_error_analyzer";
+import { HangWatchdog, RiskyEditObserver, escalateSuspicion } from "./utils/typescript/observer";
+import Ajv from "ajv";
+import * as fs from "fs";
+import * as path from "path";
+import { sleep, withJitter, suggestBackoffMs, pauseAndJitterConsult, BackoffPolicy, DefaultBackoffPolicy } from "./utils/typescript/backoff";
+import { buildJitterEnvelope, extractProposedPatch, defaultSystemPrompt, LLMAdapter, LLMResponse, PatchResult } from "./utils/typescript/jitter_comms";
+import ChatMessageHistoryAdapter from "./utils/typescript/memory_adapter";
+
+export interface HealerPolicy {
+  syntax_conf_floor: number;
+  logic_conf_floor: number;
+  max_syntax_attempts: number;
+  max_logic_attempts: number;
+  syntax_error_budget: number; // 0.03
+  logic_error_budget: number;  // 0.10
+  rate_limit_per_min: number;
+  sandbox_isolation: "full" | "partial" | "none";
+  require_human_on_risky: boolean;
+  risky_keywords: string[];
+}
+export const defaultPolicy: HealerPolicy = {
+  // Mid-tier model settings (realistic for Llama 3, Mistral, older GPT-3.5)
+  syntax_conf_floor: 0.30, logic_conf_floor: 0.25, // Lower confidence thresholds 
+  max_syntax_attempts: 5, max_logic_attempts: 7,     // More attempts before circuit breaker
+  syntax_error_budget: 0.10, logic_error_budget: 0.20, // 10% and 20% error budgets
+  rate_limit_per_min: 15, sandbox_isolation: "full",
+  require_human_on_risky: true,
+  risky_keywords: ["database_schema_change", "authentication_bypass", "production_data_modification"]
+};
+
+// Predefined policies for different model capability classes
+export const policyPresets = {
+  sota: { // GPT-4/5, Claude 3, Gemini 1.5 - high capability
+    syntax_conf_floor: 0.60, logic_conf_floor: 0.50,
+    max_syntax_attempts: 3, max_logic_attempts: 5,
+    syntax_error_budget: 0.05, logic_error_budget: 0.10,
+    rate_limit_per_min: 10
+  },
+  midTier: { // Llama 3, Mistral, older GPT-3.5 - moderate capability  
+    syntax_conf_floor: 0.30, logic_conf_floor: 0.25,
+    max_syntax_attempts: 5, max_logic_attempts: 7,
+    syntax_error_budget: 0.10, logic_error_budget: 0.20,
+    rate_limit_per_min: 15
+  },
+  localSmall: { // 7B/13B models - need breathing room
+    syntax_conf_floor: 0.20, logic_conf_floor: 0.15,
+    max_syntax_attempts: 7, max_logic_attempts: 10,
+    syntax_error_budget: 0.20, logic_error_budget: 0.30,
+    rate_limit_per_min: 20
+  }
+};
+
+export class AIDebugger {
+  private policy: HealerPolicy;
+  private scorer = new UnifiedConfidenceScorer(1.0, 1000);
+  private breaker: DualCircuitBreaker;
+  private cascade = new CascadingErrorHandler();
+  private sandbox: SandboxExecution;
+  private enveloper = new AIPatchEnvelope();
+  private memory: MemoryBuffer | ResilientMemoryBuffer = new ResilientMemoryBuffer(500, (err) => {
+    try { console.debug('[memory] error', (err as any)?.message ?? String(err)); } catch { }
+  }, 7 * 24 * 60 * 60 * 1000); // 7-day TTL
+  private human = new SeniorDeveloperSimulator();
+  private debugger = new Debugger(new LogAndFixStrategy());
+  private tokens: number[] = [];
+  // Optional, pluggable hooks
+  private sanitizer: PatchSanitizer = new PassThroughSanitizer();
+  private telemetry: TelemetrySink = new ConsoleTelemetrySink();
+  private backoffPolicy: BackoffPolicy = new DefaultBackoffPolicy();
+  private watchdog: HangWatchdog = new HangWatchdog(5000, 90);
+  private riskObserver: RiskyEditObserver;
+
+  constructor(policy: Partial<HealerPolicy> = {}) {
+    this.policy = { ...defaultPolicy, ...policy };
+    this.breaker = new DualCircuitBreaker(
+      this.policy.max_syntax_attempts,
+      this.policy.max_logic_attempts,
+      this.policy.syntax_error_budget,
+      this.policy.logic_error_budget
+    );
+    this.sandbox = new SandboxExecution(
+      Environment.SANDBOX,
+      this.policy.sandbox_isolation as any // Cast to match IsolationLevel type if needed
+    );
+    this.riskObserver = new RiskyEditObserver(this.policy.risky_keywords, 50);
+  }
+
+  process_error(
+    error_type: ErrorType,
+    message: string,
+    patch_code: string,
+    original_code: string,
+    logits: number[],
+    historical: Record<string, any> = {},
+    metadata: Record<string, any> = {}
+  ) {
+    this.enforce_rate_limit();
+
+    const patch = { message, patched_code: patch_code, original_code, language: "typescript" };
+    const envelope = this.enveloper.wrapPatch(patch);
+    envelope.metadata = { ...envelope.metadata, ...metadata };
+
+    // Evaluate risky edit flags early and attach to metadata
+    try {
+      const riskFlags = this.riskObserver.evaluate(patch_code, original_code);
+      if (riskFlags.length > 0) {
+        (envelope.metadata as any).risk_flags = riskFlags;
+      }
+    } catch { /* ignore risk flag errors */ }
+
+    // Populate schema-required fields
+    const conf: ConfidenceScore = this.scorer.calculate_confidence(logits, error_type, historical);
+    envelope.confidenceComponents = {
+      syntax: conf.syntax_confidence,
+      logic: conf.logic_confidence,
+      risk: this.is_risky(patch) ? 1 : 0
+    };
+    // Normalize breaker state for schema: OPEN|CLOSED|HALF_OPEN
+    const breakerSummaryForHeader = this.breaker.get_state_summary();
+    envelope.breakerState = breakerSummaryForHeader.state;
+    // Provide stubs for missing methods if not present
+    envelope.cascadeDepth = typeof (this.cascade as any).getDepth === "function"
+      ? (this.cascade as any).getDepth()
+      : (this.cascade as any).cascadeDepth || 0;
+    envelope.resourceUsage = typeof (this.sandbox as any).getResourceUsage === "function"
+      ? (this.sandbox as any).getResourceUsage()
+      : {};
+
+    const plan = this.human.debugLikeHuman(message, { error: message, code_snippet: patch_code });
+    this.debugger.setStrategy(this.map_strategy(plan?.recommended_strategy ?? "LogAndFixStrategy"));
+
+    const floor = (error_type === ErrorType.SYNTAX) ? this.policy.syntax_conf_floor : this.policy.logic_conf_floor;
+    const [canAttempt, cbReason] = this.breaker.can_attempt(error_type);
+    const [stop, cascadeReason] = this.cascade.should_stop_attempting();
+
+    // --- SCHEMA VALIDATION ---
+    const ajv = new Ajv({ addUsedSchema: false, strict: false });
+    ajv.addFormat('date-time', true); // Add support for date-time format
+    // Use file-relative path for robustness
+    const schemaPath = path.resolve(__dirname, 'schemas', 'selfhealing.schema.json');
+    let schema;
+    try {
+      schema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'));
+    } catch (e: any) {
+      throw new Error("Could not load PatchEnvelope schema: " + (e && e.message ? e.message : String(e)));
+    }
+    const validate = ajv.compile(schema);
+    const envelopeJson = JSON.parse(envelope.toJson());
+    if (!validate(envelopeJson)) {
+      throw new Error("PatchEnvelope validation failed: " + ajv.errorsText(validate.errors));
+    }
+
+    if (this.is_risky(patch) && this.policy.require_human_on_risky) {
+      this.record_attempt(envelope, false, "Risk gate → human review");
+      envelope.flaggedForDeveloper = true;
+      envelope.developerMessage = "Risky patch (policy). Human approval required.";
+      return this.finalize(envelope, "HUMAN_REVIEW", { cbReason, cascadeReason, floor });
+    }
+
+    const typeConf = (error_type === ErrorType.SYNTAX) ? conf.syntax_confidence : conf.logic_confidence;
+    // Gate handling: distinguish circuit-breaker rollback vs hard STOP gates
+    if (!canAttempt) {
+      this.record_attempt(envelope, false, "Circuit breaker blocked");
+      return this.finalize(envelope, "ROLLBACK", { cbReason, cascadeReason, floor });
+    }
+    if (stop || typeConf < floor) {
+      this.record_attempt(envelope, false, "Gate blocked");
+      return this.finalize(envelope, "STOP", { cbReason, cascadeReason, floor });
+    }
+
+    // Start hang watchdog
+    const attemptKey = `${envelope.patchId}`;
+    try { this.watchdog.beginAttempt(attemptKey); } catch { /* ignore */ }
+
+    const sbox = this.sandbox.execute_patch({
+      patchId: envelope.patchId, language: "typescript", patched_code: patch_code, original_code
+    });
+    const success = Boolean(sbox.success);
+
+    // Update resource usage in envelope from sandbox after execution
+    try {
+      envelope.resourceUsage = (this.sandbox as any).getResourceUsage?.() || envelope.resourceUsage;
+    } catch { /* ignore */ }
+
+    // Evaluate watchdog outcome
+    try {
+      const event = this.watchdog.endAttempt(attemptKey, { sandbox: sbox, resourceUsage: envelope.resourceUsage });
+      if (event?.triggered) {
+        // Apply first-level suspicion; deeper escalation occurs in attemptWithBackoff
+        (envelope.metadata as any).watchdog = event;
+      }
+    } catch { /* ignore */ }
+
+    const strat = this.debugger.debug({ error: message, vulnerability: message });
+
+    // Analyze code to get error counts for trend tracking
+    const originalAnalysis = CodeErrorAnalyzer.analyzeCode(original_code);
+    const patchedAnalysis = CodeErrorAnalyzer.analyzeCode(patch_code);
+    const comparison = CodeErrorAnalyzer.compareAnalyses(originalAnalysis, patchedAnalysis);
+
+    // Calculate lines of code for error density
+    const linesOfCode = patch_code.split('\n').length;
+
+    // Record attempt with error delta information, confidence, and code metrics
+    this.breaker.record_attempt(
+      error_type,
+      success,
+      patchedAnalysis.errorCount,  // errors detected in current code
+      comparison.errorsResolved,   // errors resolved from previous version
+      conf.overall_confidence,     // confidence score for this attempt
+      linesOfCode                  // lines of code for density calculation
+    );
+
+    // Create a PatchResult and persist to memory for traceability
+    try {
+      const pr = new PatchResult(success, comparison.errorsResolved, Math.max(0, comparison.errorsResolved), strat.details ?? '');
+      (this.memory as any).safeAddOutcome?.(JSON.stringify({ kind: 'patch_result', attempt: (metadata as any)?.attempt ?? null, patchId: envelope.patchId, result: pr }))
+        ?? this.memory.addOutcome(JSON.stringify({ kind: 'patch_result', attempt: (metadata as any)?.attempt ?? null, patchId: envelope.patchId, result: pr }));
+    } catch { /* best-effort */ }
+
+    // Get the breaker's recommendation for next action
+    const breakerSummary = this.breaker.get_state_summary();
+    let recommendedAction = breakerSummary.recommended_action as string;
+
+    // Update envelope with rich trend metadata
+    const localImproving = (comparison.errorsResolved > 0) || (comparison.qualityDelta > 0);
+    envelope.trendMetadata = {
+      errorsDetected: patchedAnalysis.errorCount,
+      errorsResolved: comparison.errorsResolved,
+      errorTrend: localImproving
+        ? "improving"
+        : (breakerSummary.is_improving ? "improving" : (breakerSummary.improvement_velocity < 0 ? "worsening" : "plateauing")),
+      codeQualityScore: patchedAnalysis.qualityScore,
+      improvementVelocity: breakerSummary.improvement_velocity,
+      stagnationRisk: breakerSummary.should_continue_attempts ? 0.2 : 0.8
+    }; this.scorer.record_outcome(conf.overall_confidence, success);
+    if (!success) this.cascade.add_error_to_chain(error_type, message, conf.overall_confidence, 1);
+    this.record_attempt(envelope, success, strat.details ?? "");
+    (this.memory as any).safeAddOutcome?.(envelope.toJson()) ?? this.memory.addOutcome(envelope.toJson());
+
+    // Optional: if oscillation detected, suggest short pause/backoff (caller may choose to call pause())
+    const shouldPause = (breakerSummary as any).paused === false &&
+      (breakerSummary as any).confidence_improving && !breakerSummary.is_improving;
+    const attemptNo: number = (metadata as any)?.attempt ?? 1;
+    const watchdogHigh = Boolean((envelope.metadata as any)?.watchdog?.triggered && (envelope.metadata as any)?.watchdog?.severity === 'high');
+    if (shouldPause && !(watchdogHigh && attemptNo >= 2)) {
+      recommendedAction = 'pause_and_backoff';
+      // Do not mutate breaker state automatically; leave pause() to caller if desired
+    }
+
+    // Use envelope-guided action instead of simple binary logic
+    let action: string;
+    // First-attempt grace: only force rollback on high-severity watchdog from the second attempt onward
+    const wdMeta: any = (envelope.metadata as any)?.watchdog;
+    if (watchdogHigh && attemptNo >= 2) {
+      action = "ROLLBACK";
+    } else if (wdMeta?.triggered) {
+      // If watchdog triggered at all, avoid promotion on first attempt; suggest pause/backoff
+      action = 'PAUSE_AND_BACKOFF';
+    } else if (success && (recommendedAction === "promote" || recommendedAction === "continue")) {
+      // On success, allow promotion when breaker is not explicitly rolling back
+      action = "PROMOTE";
+    } else if (recommendedAction === "rollback") {
+      action = "ROLLBACK";
+    } else if (recommendedAction === 'pause_and_backoff') {
+      action = 'PAUSE_AND_BACKOFF';
+    } else if (recommendedAction === "continue" && this.breaker.can_attempt(error_type)[0]) {
+      action = "RETRY";
+    } else if (recommendedAction === "try_different_strategy") {
+      action = "STRATEGY_CHANGE";
+    } else {
+      // Fallback to original logic
+      action = success ? "PROMOTE" : (this.breaker.can_attempt(error_type)[0] ? "RETRY" : "ROLLBACK");
+    }
+
+    return this.finalize(envelope, action, {
+      sandbox: sbox,
+      strategy: strat,
+      floor,
+      breaker_recommendation: recommendedAction,
+      trend_analysis: breakerSummary,
+      pause_hint: shouldPause ? { suggested: true, reason: 'oscillation_or_noisy_confidence' } : { suggested: false },
+      observers: {
+        watchdog: (envelope.metadata as any)?.watchdog ?? null,
+        risk_flags: (envelope.metadata as any)?.risk_flags ?? []
+      }
+    });
+  }
+
+  private map_strategy(name: string) {
+    switch (name) {
+      case "RollbackStrategy": return new RollbackStrategy();
+      case "SecurityAuditStrategy": return new SecurityAuditStrategy();
+      default: return new LogAndFixStrategy();
+    }
+  }
+  private record_attempt(env: PatchEnvelope, ok: boolean, note = "") {
+    // Attach a compact breaker snapshot with required fields for schema
+    const b = this.breaker.get_state_summary();
+    env.attempts.push({
+      ts: Date.now() / 1000,
+      success: ok,
+      note,
+      breaker: {
+        state: b.state,
+        failure_count: b.failure_count
+      }
+    });
+    env.success = env.success || ok;
+  }
+  private finalize(env: PatchEnvelope, action: string, extras: Record<string, any>) {
+    return { action, envelope: JSON.parse(env.toJson()), extras };
+  }
+  private is_risky(patch: Record<string, any>) {
+    const blob = JSON.stringify(patch).toLowerCase();
+    return this.policy.risky_keywords.some(k => blob.includes(k));
+  }
+  private enforce_rate_limit() {
+    const now = Date.now() / 1000;
+    this.tokens = this.tokens.filter(t => now - t < 60);
+    if (this.tokens.length >= this.policy.rate_limit_per_min) throw new Error("Rate limit exceeded");
+    this.tokens.push(now);
+  }
+
+  // Persistence methods - extend the existing AIDebugger
+  async saveMemory(filePath: string = './ai-debugger-memory.json'): Promise<void> {
+    await this.memory.save(filePath);
+  }
+
+  async loadMemory(filePath: string = './ai-debugger-memory.json'): Promise<void> {
+    await this.memory.load(filePath);
+  }
+
+  getMemoryStats(): { bufferSize: number; maxSize: number } {
+    return {
+      bufferSize: (this.memory as any).buffer.length,
+      maxSize: (this.memory as any).maxSize
+    };
+  }
+
+  // Orchestrated retry with backoff and minimal patch tweak between attempts
+  async attemptWithBackoff(
+    error_type: ErrorType,
+    message: string,
+    patch_code: string,
+    original_code: string,
+    logits: number[],
+    opts: { maxAttempts?: number; minMs?: number; maxMs?: number; llmAdapter?: LLMAdapter; sessionId?: string; chatAdapter?: ChatMessageHistoryAdapter } = {}
+  ): Promise<{ action: string; envelope: any; extras: any }> {
+    const maxAttempts = Math.max(1, opts.maxAttempts ?? 3);
+    const minMs = Math.max(0, opts.minMs ?? 500);
+    const maxMs = Math.max(minMs, opts.maxMs ?? 1500);
+
+    let currentPatch = patch_code;
+    let result: any = null;
+    let consecutiveWatchdogFlags = 0;
+    let watchdogAggregate = { watchdog_flag_count: 0 } as { watchdog_flag_count: number; last_event?: any };
+
+    // Optional: set up a chat history adapter for this run
+    const chat = opts.chatAdapter ?? new ChatMessageHistoryAdapter(this.memory as any, opts.sessionId);
+    // Log initial system prompt for traceability
+    try { chat.addMessage('system', defaultSystemPrompt, { phase: 'init' }); } catch { }
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Record the start of an attempt as a user message for conversation continuity
+      try {
+        chat.addMessage('user', {
+          type: 'attempt.start',
+          attempt,
+          error_type,
+          message,
+          last_patch: currentPatch,
+          language: 'typescript'
+        }, { phase: 'attempt' });
+      } catch { /* ignore chat errors */ }
+
+      result = this.process_error(
+        error_type,
+        message,
+        currentPatch,
+        original_code,
+        logits,
+        { attempt },
+        { attempt }
+      );
+
+      const summary = result.extras?.trend_analysis || this.breaker.get_state_summary();
+
+      // Stream envelope JSON and trend snapshot to chat for full LC-style comms
+      try {
+        chat.addMessage('tool', {
+          type: 'patch_envelope',
+          action: result.action,
+          envelope: result.envelope,
+          attempt
+        }, { phase: 'result' });
+        chat.addMessage('tool', {
+          type: 'trend_snapshot',
+          summary,
+          breaker_recommendation: summary?.recommended_action,
+          improving: !!summary?.is_improving
+        }, { phase: 'result' });
+      } catch { /* ignore chat errors */ }
+
+      const wd = result?.extras?.observers?.watchdog;
+      if (wd?.triggered) {
+        consecutiveWatchdogFlags += 1;
+        watchdogAggregate.watchdog_flag_count += 1;
+        watchdogAggregate.last_event = wd;
+        // escalate suspicion on the 3rd and 4th attempt if flags persist
+        const currentSusp = (wd?.suspicion ?? 'suspicious') as 'none' | 'suspicious' | 'danger' | 'extreme';
+        const escalated = escalateSuspicion(currentSusp, attempt, consecutiveWatchdogFlags);
+        // Mutate in-place for telemetry/jitter consumers
+        if (wd && wd.suspicion !== escalated) {
+          wd.suspicion = escalated;
+        }
+      } else {
+        consecutiveWatchdogFlags = 0;
+      }
+
+      if (result.action === 'PROMOTE' || result.action === 'ROLLBACK' || result.action === 'HUMAN_REVIEW') {
+        // Final decision message + memory metrics snapshot
+        try {
+          const metrics = (this.memory as any).getMetrics?.();
+          chat.addMessage('tool', {
+            type: 'final_decision',
+            decision: result.action,
+            attempt,
+            observers: { watchdog_flag_count: watchdogAggregate.watchdog_flag_count },
+            memory_metrics: metrics ?? null
+          }, { phase: 'final' });
+        } catch { /* ignore chat errors */ }
+        // Surface observer aggregates in extras for telemetry
+        return { ...result, extras: { ...result.extras, observers: { ...(result.extras?.observers || {}), watchdog_flag_count: watchdogAggregate.watchdog_flag_count } } };
+      }
+
+      // Decide backoff
+      if (result.action === 'PAUSE_AND_BACKOFF' || result.action === 'RETRY') {
+        // Trend-aware tripping: if watchdog flagged twice in a row and no improvement, convert to rollback
+        if (consecutiveWatchdogFlags >= 2) {
+          // check trend
+          const trend = result?.extras?.trend_analysis;
+          const improving = Boolean(trend?.is_improving || result?.envelope?.trendMetadata?.errorTrend === 'improving');
+          if (!improving) {
+            return { ...result, action: 'ROLLBACK', extras: { ...result.extras, stop_reason: 'watchdog_trend', observers: { ...(result.extras?.observers || {}), watchdog_flag_count: watchdogAggregate.watchdog_flag_count } } };
+          }
+        }
+        const sb = result.extras?.sandbox;
+        const failMsg = (sb?.error_message) || (Array.isArray(sb?.test_results) ? (sb.test_results.find((t: any) => !t.passed)?.error_message || null) : null);
+
+        // Centralized pause+jitter+LLM consult; returns jitter envelope and optional LLM patch
+        // Retrieve similar outcomes from long-chain memory (best-effort)
+        let similarOutcomes: any[] | undefined;
+        try {
+          similarOutcomes = this.memory.getSimilarOutcomes({ message: failMsg || message, code: original_code });
+        } catch { /* ignore */ }
+
+        const consult = await pauseAndJitterConsult({
+          summary,
+          minMs,
+          maxMs,
+          errorMessage: failMsg || message,
+          originalCode: original_code,
+          lastPatch: currentPatch,
+          language: 'typescript',
+          lastEnvelopeJson: result.envelope,
+          sessionId: opts.sessionId,
+          llmAdapter: opts.llmAdapter,
+          extraMetadata: {
+            ...(similarOutcomes ? { similar_outcomes_sample: similarOutcomes.slice(-3) } : {}),
+            loop_attempt: attempt,
+            request_id: result?.envelope?.patch_id ?? null
+          },
+          backoffPolicy: this.backoffPolicy
+        });
+
+        // Persist jitter envelope and reply to long-chain memory for future context
+        try {
+          (this.memory as any).safeAddOutcome?.(JSON.stringify({ kind: 'jitter_envelope', envelope: consult.envelope })) ?? this.memory.addOutcome(JSON.stringify({ kind: 'jitter_envelope', envelope: consult.envelope }));
+          if (consult.llmReplyText) {
+            const llm = LLMResponse.fromLLMReply(consult.llmReplyText);
+            (this.memory as any).safeAddOutcome?.(JSON.stringify({ kind: 'llm_reply', response: { intent: llm.intent, proposedPatch: llm.proposedPatch, rawText: llm.rawText } })) ?? this.memory.addOutcome(JSON.stringify({ kind: 'llm_reply', response: { intent: llm.intent, proposedPatch: llm.proposedPatch, rawText: llm.rawText } }));
+          }
+        } catch { /* best-effort */ }
+
+        // Also log to chat history: user sends the jitter envelope, AI responds
+        try { chat.addMessage('user', consult.envelope, { phase: 'backoff_consult' }); } catch { }
+        try { if (consult.llmReplyText) chat.addMessage('ai', consult.llmReplyText, { phase: 'backoff_consult' }); } catch { }
+
+        // Telemetry event for the attempt
+        try {
+          this.telemetry.onAttempt?.({
+            envelope: consult.envelope,
+            breakerSummary: summary,
+            llmReply: consult.llmReplyText ?? null,
+            waitMs: consult.waitMs,
+            rationale: (consult as any).rationale ?? null
+          });
+        } catch { /* ignore telemetry errors */ }
+
+        if (consult.proposedPatch) {
+          // Sanitize proposed patch before applying
+          const check = this.sanitizer.sanitize(consult.proposedPatch, {
+            max_lines_changed: 50,
+            disallow_keywords: this.policy.risky_keywords
+          });
+          if (check.ok) {
+            currentPatch = check.code ?? consult.proposedPatch;
+          } else {
+            // Record sanitizer rejection and fall back to minimal tweak
+            try {
+              (this.memory as any).safeAddOutcome?.(JSON.stringify({ kind: 'sanitizer_reject', reason: check.reason, ts: Date.now() })) ?? this.memory.addOutcome(JSON.stringify({ kind: 'sanitizer_reject', reason: check.reason, ts: Date.now() }));
+            } catch { /* ignore */ }
+            currentPatch = this.minimalTweak(currentPatch, failMsg || message);
+          }
+        } else {
+          currentPatch = this.minimalTweak(currentPatch, failMsg || message);
+        }
+
+        // Record decision as a tool message in chat history
+        try { chat.addMessage('tool', JSON.stringify({ action: 'apply_patch', attempt, reason: consult.rationale || 'backoff_policy' }), { phase: 'decision' }); } catch { }
+        continue;
+      }
+
+      // Try different strategy next
+      if (result.action === 'STRATEGY_CHANGE') {
+        currentPatch = this.minimalTweak(currentPatch, message);
+        continue;
+      }
+
+      // Fallback: return whatever we got
+      return result;
+    }
+
+    return result as any;
+  }
+
+  // Very conservative tweak: fix common syntax issues without altering logic
+  private minimalTweak(code: string, errorMessage?: string): string {
+    let out = code;
+    const msg = (errorMessage || '').toLowerCase();
+
+    // Missing comma in object literals
+    out = out.replace(/(\w+\s*:\s*[^,\n]+)\n(\s*\w+\s*:)/g, '$1,\n$2');
+    // Unmatched parentheses: try closing a missing ) at end of console.log lines
+    out = out.replace(/console\.log\(([^)]*)$/gm, 'console.log($1)');
+    // Add missing semicolons for simple let/const/return lines
+    out = out.replace(/^(\s*(?:let|const|return)\b[^;\n]*)$/gm, '$1;');
+    // Basic quote balance: replace stray single-quote logs with double quotes
+    out = out.replace(/console\.log\('\s*([^']*)\s*'\)/g, 'console.log("$1")');
+
+    // If parser hints missing ) or Unexpected end of input, attempt to balance (), {}, [] globally
+    if (/missing \)|unexpected end of input|unmatched|unexpected token/.test(msg)) {
+      out = this.balancePairs(out);
+    }
+    return out;
+  }
+
+  private balancePairs(src: string): string {
+    // Balance (), {}, [] by counting and adding closing tokens at EOF as a safe no-op try
+    const pairs: Array<[string, string]> = [["(", ")"], ["{", "}"], ["[", "]"]];
+    let out = src;
+    for (const [open, close] of pairs) {
+      const openCount = (out.match(new RegExp(`\\${open}`, 'g')) || []).length;
+      const closeCount = (out.match(new RegExp(`\\${close}`, 'g')) || []).length;
+      const missing = Math.max(0, openCount - closeCount);
+      if (missing > 0) {
+        out = out + close.repeat(missing);
+      }
+    }
+    return out;
+  }
+}
+
+// --- Extension hooks (Tier-1) ---
+export interface PatchSanitizer {
+  sanitize(code: string, constraints: { max_lines_changed?: number; disallow_keywords?: string[] }): { ok: boolean; reason?: string; code?: string };
+}
+
+class PassThroughSanitizer implements PatchSanitizer {
+  sanitize(code: string): { ok: boolean; reason?: string; code?: string } {
+    // Default: allow all; subclasses can enforce constraints
+    return { ok: true, code };
+  }
+}
+
+export interface TelemetrySink {
+  onAttempt?(payload: { envelope: any; breakerSummary: any; llmReply: string | null; waitMs: number; rationale?: string }): void;
+}
+
+class ConsoleTelemetrySink implements TelemetrySink {
+  onAttempt(payload: { envelope: any; breakerSummary: any; llmReply: string | null; waitMs: number; rationale?: string }): void {
+    try {
+      // Keep concise to avoid noise
+      const las = payload?.envelope?.last_attempt_status || {};
+      console.debug('[telemetry] attempt', {
+        type: payload?.envelope?.type,
+        decision: payload?.breakerSummary?.recommended_action ?? payload?.envelope?.trend?.recommended_action,
+        waitMs: payload.waitMs,
+        replyBytes: payload.llmReply ? payload.llmReply.length : 0,
+        rationale: payload.rationale ?? null,
+        request_id: payload?.envelope?.metadata?.request_id ?? null,
+        loop_attempt: payload?.envelope?.metadata?.loop_attempt ?? null,
+        errors_resolved: las.errors_resolved ?? null,
+        error_delta: las.error_delta ?? null
+      });
+    } catch { /* ignore */ }
+  }
+}

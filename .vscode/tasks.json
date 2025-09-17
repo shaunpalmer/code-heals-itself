@@ -1,0 +1,49 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "jest: targeted tests",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"tests/ts/envelope-guided-breaker.test.ts",
+				"--verbose",
+				"--no-cache"
+			]
+		},
+		{
+			"label": "jest: full suite",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"--verbose",
+				"--no-cache"
+			]
+		},
+		{
+			"label": "jest: re-run full suite",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"--verbose",
+				"--no-cache",
+				"--runInBand"
+			]
+		},
+		{
+			"label": "jest: re-run trend-aware tests",
+			"type": "shell",
+			"command": "npx",
+			"args": [
+				"jest",
+				"tests/ts/trend-aware-breaker.test.ts",
+				"--verbose",
+				"--no-cache",
+				"--runInBand"
+			]
+		}
+	]
+}

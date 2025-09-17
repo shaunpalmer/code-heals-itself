@@ -1,0 +1,164 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://selfhealing.system/schema/patch-envelope.json",
+  "title": "AI Self-Healing System Schema",
+  "description": "Unified schema for patch envelopes and circuit breaker policies",
+  "definitions": {
+    "circuitBreakerPolicy": {
+      "type": "object",
+      "description": "Circuit breaker policy configuration for different model capability classes",
+      "properties": {
+        "modelClass": {
+          "type": "string",
+          "enum": ["sota", "mid-tier", "local-small"],
+          "description": "Model capability: sota (GPT-4/5, Claude 3), mid-tier (Llama 3, Mistral), local-small (7B/13B)"
+        },
+        "syntax_error_budget": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 0.50,
+          "description": "Maximum acceptable error rate for syntax fixes (0.05 = 5%)"
+        },
+        "logic_error_budget": {
+          "type": "number", 
+          "minimum": 0.05,
+          "maximum": 0.50,
+          "description": "Maximum acceptable error rate for logic fixes (0.10 = 10%)"
+        },
+        "max_syntax_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Maximum attempts before circuit breaker trips for syntax errors"
+        },
+        "max_logic_attempts": {
+          "type": "integer",
+          "minimum": 3, 
+          "maximum": 20,
+          "description": "Maximum attempts before circuit breaker trips for logic errors"
+        },
+        "confidence_floor_syntax": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 0.99,
+          "description": "Minimum confidence required to attempt syntax fixes"
+        },
+        "confidence_floor_logic": {
+          "type": "number",
+          "minimum": 0.1, 
+          "maximum": 0.90,
+          "description": "Minimum confidence required to attempt logic fixes"
+        }
+      },
+      "required": ["modelClass", "syntax_error_budget", "logic_error_budget", "max_syntax_attempts", "max_logic_attempts"]
+    },
+    "patchEnvelope": {
+      "type": "object",
+      "required": ["patch_id", "patch_data", "metadata", "attempts"],
+      "properties": {
+        "patch_id": { "type": "string" },
+        "patch_data": {
+          "type": "object",
+          "description": "The actual patch payload",
+          "required": ["language", "patched_code", "original_code"],
+          "properties": {
+            "language": { "type": "string", "enum": ["python", "php", "javascript", "typescript"] },
+            "patched_code": { "type": "string" },
+            "original_code": { "type": "string" },
+            "diff": { "type": "string" }
+          }
+        },
+        "metadata": {
+          "type": "object",
+          "properties": {
+            "created_at": { "type": "string" },
+            "ai_generated": { "type": "boolean" },
+            "service": { "type": "string" },
+            "env": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ts", "success", "breaker"],
+            "properties": {
+              "ts": { "type": "number" },
+              "success": { "type": "boolean" },
+              "note": { "type": "string" },
+              "breaker": {
+                "type": "object",
+                "properties": {
+                  "state": { "type": "string", "enum": ["OPEN", "CLOSED", "HALF_OPEN"] },
+                  "failure_count": { "type": "integer", "minimum": 0 }
+                },
+                "required": ["state"]
+              }
+            }
+          }
+        },
+        "confidenceComponents": {
+          "type": "object",
+          "properties": {
+            "syntax": { "type": "number", "minimum": 0, "maximum": 1 },
+            "logic": { "type": "number", "minimum": 0, "maximum": 1 },
+            "risk": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        "trendMetadata": {
+          "type": "object",
+          "description": "Error trend analysis for intelligent circuit breaker decisions",
+          "properties": {
+            "errorsDetected": { "type": "integer", "minimum": 0, "description": "Total errors found in this attempt" },
+            "errorsResolved": { "type": "integer", "minimum": 0, "description": "Errors fixed from previous attempts" },
+            "errorTrend": { "type": "string", "enum": ["improving", "plateauing", "worsening", "unknown"], "description": "Overall trend direction" },
+            "codeQualityScore": { "type": "number", "minimum": 0, "maximum": 1, "description": "Overall code quality (0=poor, 1=excellent)" },
+            "improvementVelocity": { "type": "number", "minimum": 0, "maximum": 1, "description": "How fast we're improving (0=slow, 1=fast)" },
+            "stagnationRisk": { "type": "number", "minimum": 0, "maximum": 1, "description": "Risk of getting stuck in local minimum" }
+          }
+        },
+        "breakerState": { "type": "string", "enum": ["OPEN", "CLOSED", "HALF_OPEN"] },
+        "cascadeDepth": { "type": "integer", "minimum": 0 },
+        "resourceUsage": {
+          "type": "object",
+          "properties": {
+            "cpuPercent": { "type": "number", "minimum": 0, "maximum": 100 },
+            "memoryMB": { "type": "number", "minimum": 0 },
+            "executionTimeMs": { "type": "number", "minimum": 0 },
+            "sideEffects": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "flagged_for_developer": { "type": "boolean" },
+        "developer_message": { "type": "string" },
+        "success": { "type": "boolean" },
+        "timestamp": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "PatchEnvelope",
+      "$ref": "#/definitions/patchEnvelope"
+    },
+    {
+      "title": "CircuitBreakerPolicy", 
+      "$ref": "#/definitions/circuitBreakerPolicy"
+    }
+  ],
+  "examples": [
+    {
+      "modelClass": "mid-tier",
+      "syntax_error_budget": 0.10,
+      "logic_error_budget": 0.20,
+      "max_syntax_attempts": 5,
+      "max_logic_attempts": 7,
+      "confidence_floor_syntax": 0.30,
+      "confidence_floor_logic": 0.25
+    }
+  ]
+}
