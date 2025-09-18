@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Heals Itself - Interactive Demo</title>
+
+    <!-- Prism.js for Syntax Highlighting -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-core.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/plugins/line-numbers/prism-line-numbers.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            font-size: 1.2em;
+        }
+
+        .demo-section {
+            margin-bottom: 30px;
+            border-left: 4px solid #3498db;
+            padding-left: 20px;
+        }
+
+        .code-input {
+            width: 100%;
+            min-height: 150px;
+            padding: 15px;
+            border: 2px solid #bdc3c7;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin-bottom: 15px;
+            resize: vertical;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: all 0.3s ease;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .output {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            min-height: 200px;
+            margin-top: 15px;
+            overflow-x: auto;
+        }
+
+        .metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .metric-card {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid #e9ecef;
+        }
+
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+        }
+
+        .metric-label {
+            color: #7f8c8d;
+            margin-top: 5px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background: #ecf0f1;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        .attempt-log {
+            background: #34495e;
+            color: #ecf0f1;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .attempt-entry {
+            margin-bottom: 10px;
+            padding: 10px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-improving { background: #27ae60; }
+        .status-plateauing { background: #f39c12; }
+        .status-worsening { background: #e74c3c; }
+
+        .presets {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .preset-btn {
+            background: #ecf0f1;
+            color: #2c3e50;
+            border: 2px solid #bdc3c7;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .preset-btn:hover {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.3);
+        }
+
+        .preset-btn:active {
+            transform: translateY(0px);
+        }
+
+        /* Drag and Drop Styles */
+        .preset-btn.dragging {
+            opacity: 0.5;
+            transform: rotate(5deg) scale(1.1);
+            box-shadow: 0 8px 16px rgba(52, 152, 219, 0.4);
+        }
+
+        .code-input.drag-over {
+            border-color: #3498db;
+            background: rgba(52, 152, 219, 0.05);
+            box-shadow: 0 0 20px rgba(52, 152, 219, 0.3);
+            animation: pulseBorder 1s infinite;
+        }
+
+        @keyframes pulseBorder {
+            0%, 100% { box-shadow: 0 0 20px rgba(52, 152, 219, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(52, 152, 219, 0.6); }
+        }
+
+        .drag-preview {
+            position: absolute;
+            pointer-events: none;
+            z-index: 1001;
+            background: rgba(52, 152, 219, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            transform: rotate(-2deg);
+            animation: dragFloat 2s ease-in-out infinite;
+        }
+
+        @keyframes dragFloat {
+            0%, 100% { transform: translateY(0) rotate(-2deg); }
+            50% { transform: translateY(-5px) rotate(2deg); }
+        }
+
+        .drop-zone {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .drop-zone::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(45deg, transparent, rgba(52, 152, 219, 0.1), transparent);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+
+        .drop-zone.drag-over::before {
+            opacity: 1;
+            animation: shimmer 1.5s ease-in-out infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .drag-feedback {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #3498db;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1002;
+            animation: slideDown 0.3s ease-out;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        @keyframes slideDown {
+            0% {
+                transform: translateX(-50%) translateY(-100%);
+                opacity: 0;
+            }
+            100% {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .drag-feedback.show {
+            animation: slideDown 0.3s ease-out, fadeOut 0.3s ease-out 2s forwards;
+        }
+
+        @keyframes fadeOut {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        .code-input {
+            animation: successPulse 0.5s ease-in-out;
+        }
+
+        @keyframes successPulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.4); }
+            50% { transform: scale(1.02); box-shadow: 0 0 0 8px rgba(39, 174, 96, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); }
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden { display: none; }
+
+        /* Enhanced Visual Effects */
+        .particle {
+            position: absolute;
+            pointer-events: none;
+            z-index: 1000;
+            animation: particleFloat 2s ease-out forwards;
+        }
+
+        @keyframes particleFloat {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-100px) scale(0.5);
+            }
+        }
+
+        .floating-element {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .shake {
+            animation: shake 0.5s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
+        .glow {
+            box-shadow: 0 0 20px rgba(52, 152, 219, 0.6);
+        }
+
+        .success-burst {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .success-burst::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: radial-gradient(circle, rgba(39, 174, 96, 0.3) 0%, transparent 70%);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            animation: burst 0.6s ease-out forwards;
+        }
+
+        @keyframes burst {
+            0% {
+                width: 0;
+                height: 0;
+                opacity: 1;
+            }
+            100% {
+                width: 300px;
+                height: 300px;
+                opacity: 0;
+            }
+        }
+
+        .typing {
+            border-right: 2px solid #3498db;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { border-color: #3498db; }
+            51%, 100% { border-color: transparent; }
+        }
+
+        .metric-card.updating {
+            animation: cardUpdate 0.5s ease-in-out;
+        }
+
+        @keyframes cardUpdate {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        .progress-fill.animated {
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .btn.clicked {
+            animation: btnClick 0.2s ease-in-out;
+        }
+
+        @keyframes btnClick {
+            0% { transform: scale(1); }
+            50% { transform: scale(0.95); }
+            100% { transform: scale(1); }
+        }
+
+        .code-input:focus {
+            animation: inputFocus 0.3s ease-in-out;
+        }
+
+        @keyframes inputFocus {
+            0% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.4); }
+            100% { box-shadow: 0 0 0 4px rgba(52, 152, 219, 0.4); }
+        }
+
+        /* Prism.js Custom Styling */
+        .code-display-container {
+            position: relative;
+            margin-top: 15px;
+        }
+
+        .code-display {
+            background: #2d3748;
+            border: 2px solid #4a5568;
+            border-radius: 5px;
+            padding: 15px;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            color: #e2e8f0;
+            display: none;
+            position: relative;
+        }
+
+        .code-display.show {
+            display: block;
+        }
+
+        .code-display:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 10px rgba(52, 152, 219, 0.3);
+        }
+
+        /* Override Prism theme to match our dark theme */
+        .code-display pre {
+            background: transparent;
+            margin: 0;
+            padding: 0;
+            font-family: inherit;
+            font-size: inherit;
+            line-height: inherit;
+        }
+
+        .code-display code {
+            background: transparent;
+            color: inherit;
+            font-family: inherit;
+            font-size: inherit;
+        }
+
+        /* Syntax highlighting colors */
+        .code-display .token.comment,
+        .code-display .token.prolog,
+        .code-display .token.doctype,
+        .code-display .token.cdata {
+            color: #718096;
+        }
+
+        .code-display .token.punctuation {
+            color: #a0aec0;
+        }
+
+        .code-display .token.property,
+        .code-display .token.tag,
+        .code-display .token.constant,
+        .code-display .token.symbol,
+        .code-display .token.deleted {
+            color: #e53e3e;
+        }
+
+        .code-display .token.boolean,
+        .code-display .token.number {
+            color: #d69e2e;
+        }
+
+        .code-display .token.selector,
+        .code-display .token.attr-name,
+        .code-display .token.string,
+        .code-display .token.char,
+        .code-display .token.builtin,
+        .code-display .token.inserted {
+            color: #38a169;
+        }
+
+        .code-display .token.operator,
+        .code-display .token.entity,
+        .code-display .token.url,
+        .code-display .language-css .token.string,
+        .code-display .style .token.string,
+        .code-display .token.variable {
+            color: #3182ce;
+        }
+
+        .code-display .token.atrule,
+        .code-display .token.attr-value,
+        .code-display .token.function,
+        .code-display .token.class-name {
+            color: #805ad5;
+        }
+
+        .code-display .token.keyword {
+            color: #e53e3e;
+            font-weight: bold;
+        }
+
+        .code-display .token.regex,
+        .code-display .token.important {
+            color: #38a169;
+        }
+
+        /* Line numbers styling */
+        .code-display .line-numbers-rows {
+            border-right: 2px solid #4a5568;
+            padding-right: 10px;
+            color: #718096;
+        }
+
+        .code-display .line-numbers-rows span {
+            display: block;
+            counter-increment: linenumber;
+        }
+
+        .code-display .line-numbers-rows span:before {
+            content: counter(linenumber);
+            display: block;
+            text-align: right;
+            color: #718096;
+            font-size: 12px;
+            padding-right: 10px;
+        }
+
+        /* Toggle buttons */
+        .view-toggle {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .toggle-btn {
+            background: #ecf0f1;
+            color: #2c3e50;
+            border: 2px solid #bdc3c7;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-btn:hover {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+        }
+
+        .toggle-btn.active {
+            background: #3498db;
+            color: white;
+            border-color: #3498db;
+            box-shadow: 0 2px 8px rgba(52, 152, 219, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="dragFeedback" class="drag-feedback">Drop code snippet here! 📝</div>
+        <h1 class="floating-element">🚀 Code Heals Itself</h1>
+        <p class="subtitle">Experience Gradient-Based Debugging in Action</p>
+
+        <div class="demo-section">
+            <h2 class="floating-element">🎯 Try the Debugger</h2>
+            <p>Paste your buggy TypeScript code below and watch the gradient-based debugging system analyze and improve it!</p>
+
+            <div class="presets">
+                <button class="preset-btn" draggable="true" data-preset="null-check" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">🔧 Null Check Missing</button>
+                <button class="preset-btn" draggable="true" data-preset="semicolon" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">📝 Semicolon Missing</button>
+                <button class="preset-btn" draggable="true" data-preset="async" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">🔄 Async/Await Missing</button>
+                <button class="preset-btn" draggable="true" data-preset="complex" ondragstart="handleDragStart(event)" ondragend="handleDragEnd(event)">🎯 Complex Logic</button>
+            </div>
+
+            <div class="drop-zone">
+                <textarea id="codeInput" class="code-input" placeholder="Paste your buggy TypeScript code here...
+
+Example:
+function processUser(user) {
+  return user.name.toUpperCase();
+}
+
+// 💡 TIP: You can also DRAG & DROP code snippets from the buttons above!" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)" oninput="updateCodeDisplay()">// Paste your buggy TypeScript code here
+//
+// Example scenarios:
+// 1. Missing null check
+// 2. Missing semicolon
+// 3. Async/await issues
+// 4. Complex logic errors
+
+function example(user) {
+  return user.name.toUpperCase();
+}</textarea>
+            </div>
+
+            <div class="view-toggle">
+                <button class="toggle-btn active" onclick="switchView('edit')">✏️ Edit Mode</button>
+                <button class="toggle-btn" onclick="switchView('preview')">👁️ Preview Mode</button>
+            </div>
+
+            <div class="code-display-container">
+                <div id="codeDisplay" class="code-display">
+                    <pre><code class="language-typescript line-numbers">// Paste your buggy TypeScript code here
+//
+// Example scenarios:
+// 1. Missing null check
+// 2. Missing semicolon
+// 3. Async/await issues
+// 4. Complex logic errors
+
+function example(user) {
+  return user.name.toUpperCase();
+}</code></pre>
+                </div>
+            </div>
+
+            <button id="runBtn" class="btn" onclick="runDebugger()">
+                <span id="runText">🤖 Run Gradient Debugger</span>
+                <span id="loading" class="loading hidden"></span>
+            </button>
+
+            <button id="clearBtn" class="btn" onclick="clearOutput()" style="background: #e74c3c;">🗑️ Clear</button>
+        </div>
+
+        <div class="metrics">
+            <div class="metric-card" id="errorsCard">
+                <div class="metric-value" id="errorsValue">0</div>
+                <div class="metric-label">Errors Detected</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="errorsProgress"></div>
+                </div>
+            </div>
+            <div class="metric-card" id="confidenceCard">
+                <div class="metric-value" id="confidenceValue">0%</div>
+                <div class="metric-label">Confidence Score</div>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="confidenceProgress"></div>
+                </div>
+            </div>
+            <div class="metric-card" id="attemptsCard">
+                <div class="metric-value" id="attemptsValue">0</div>
+                <div class="metric-label">Attempts Made</div>
+            </div>
+            <div class="metric-card" id="trendCard">
+                <div class="metric-value" id="trendValue">UNKNOWN</div>
+                <div class="metric-label">Overall Trend</div>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2 class="floating-element">📊 Live Analysis Feed</h2>
+            <div id="output" class="output">
+🚀 Welcome to Code Heals Itself Demo!
+
+This interactive demo shows how gradient-based debugging works:
+
+1. 📈 Error Gradients: Track improvement over attempts
+2. 🎯 Confidence Scoring: Measure AI certainty
+3. 🔌 Circuit Breakers: Prevent infinite loops
+4. 📊 Trend Analysis: Detect improvement patterns
+
+Click "Run Gradient Debugger" to see it in action!
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2 class="floating-element">🔄 Attempt History</h2>
+            <div id="attemptLog" class="attempt-log">
+<i>No attempts yet. Run the debugger to see the analysis process!</i>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentScenario = null;
+        let attemptHistory = [];
+        let particles = [];
+        let animationFrame = null;
+
+        const presets = {
+            'null-check': {
+                code: `function processUser(user) {
+  return user.name.toUpperCase();
+}`,
+                description: 'Missing null check causing potential runtime error'
+            },
+            'semicolon': {
+                code: `function calculate(x, y) {
+  const result = x + y
+  return result
+}`,
+                description: 'Missing semicolon causing syntax issues'
+            },
+            'async': {
+                code: `function fetchData() {
+  return fetch('/api/data')
+    .then(response => response.json())
+}`,
+                description: 'Missing async/await causing promise handling issues'
+            },
+            'complex': {
+                code: `function complexLogic(data) {
+  if (data.value > 0) {
+    return data.value * 2;
+  } else {
+    return "invalid";
+  }
+}`,
+                description: 'Complex logic requiring multiple refinements'
+            }
+        };
+
+        // Particle system for visual effects
+        function createParticle(x, y, color = '#3498db') {
+            const particle = document.createElement('div');
+            particle.className = 'particle';
+            particle.style.left = x + 'px';
+            particle.style.top = y + 'px';
+            particle.style.background = color;
+            particle.style.width = Math.random() * 10 + 5 + 'px';
+            particle.style.height = particle.style.width;
+            particle.style.borderRadius = '50%';
+
+            document.body.appendChild(particle);
+
+            setTimeout(() => {
+                if (particle.parentNode) {
+                    particle.parentNode.removeChild(particle);
+                }
+            }, 2000);
+        }
+
+        function createParticleBurst(x, y, count = 10, color = '#3498db') {
+            for (let i = 0; i < count; i++) {
+                setTimeout(() => {
+                    const angle = (Math.PI * 2 * i) / count;
+                    const distance = Math.random() * 50 + 20;
+                    const particleX = x + Math.cos(angle) * distance;
+                    const particleY = y + Math.sin(angle) * distance;
+                    createParticle(particleX, particleY, color);
+                }, i * 50);
+            }
+        }
+
+        // Enhanced visual feedback functions
+        function animateValue(element, start, end, duration = 1000) {
+            const startTime = performance.now();
+            const difference = end - start;
+
+            function update(currentTime) {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+
+                // Easing function for smooth animation
+                const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+                const current = start + difference * easeOutCubic;
+
+                if (element.id === 'confidenceValue') {
+                    element.textContent = `${current.toFixed(1)}%`;
+                } else {
+                    element.textContent = Math.round(current);
+                }
+
+                if (progress < 1) {
+                    requestAnimationFrame(update);
+                }
+            }
+
+            requestAnimationFrame(update);
+        }
+
+        function loadPreset(presetName) {
+            const preset = presets[presetName];
+            if (preset) {
+                const btn = event.target;
+                const rect = btn.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+
+                // Visual feedback
+                btn.classList.add('shake');
+                createParticleBurst(centerX, centerY, 8, '#3498db');
+
+                setTimeout(() => btn.classList.remove('shake'), 500);
+
+                document.getElementById('codeInput').value = preset.code;
+                addToOutput(`🎯 Loaded preset: ${preset.description}`, 'preset');
+
+                // Add typing effect to textarea
+                const textarea = document.getElementById('codeInput');
+                textarea.classList.add('typing');
+                setTimeout(() => textarea.classList.remove('typing'), 1000);
+            }
+        }
+
+        // Drag and Drop Functions
+        let draggedPreset = null;
+        let dragPreview = null;
+
+        function handleDragStart(event) {
+            draggedPreset = event.target.dataset.preset;
+            event.target.classList.add('dragging');
+
+            // Create drag preview
+            dragPreview = document.createElement('div');
+            dragPreview.className = 'drag-preview';
+            dragPreview.textContent = event.target.textContent;
+            document.body.appendChild(dragPreview);
+
+            // Update drag preview position
+            function updatePreview(e) {
+                if (dragPreview) {
+                    dragPreview.style.left = e.clientX + 10 + 'px';
+                    dragPreview.style.top = e.clientY + 10 + 'px';
+                }
+            }
+
+            document.addEventListener('drag', updatePreview);
+
+            // Clean up after drag ends
+            event.target.addEventListener('dragend', () => {
+                document.removeEventListener('drag', updatePreview);
+            }, { once: true });
+
+            // Set drag data
+            event.dataTransfer.setData('text/plain', draggedPreset);
+            event.dataTransfer.effectAllowed = 'copy';
+        }
+
+        function handleDragEnd(event) {
+            event.target.classList.remove('dragging');
+
+            // Remove drag preview
+            if (dragPreview) {
+                document.body.removeChild(dragPreview);
+                dragPreview = null;
+            }
+
+            draggedPreset = null;
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+
+            const textarea = document.getElementById('codeInput');
+            const dropZone = textarea.parentElement;
+
+            if (!dropZone.classList.contains('drag-over')) {
+                dropZone.classList.add('drag-over');
+                textarea.classList.add('drag-over');
+
+                // Show drag feedback
+                const feedback = document.getElementById('dragFeedback');
+                feedback.classList.add('show');
+                setTimeout(() => feedback.classList.remove('show'), 2500);
+            }
+        }
+
+        function handleDragLeave(event) {
+            const textarea = document.getElementById('codeInput');
+            const dropZone = textarea.parentElement;
+            const rect = dropZone.getBoundingClientRect();
+
+            // Only remove drag-over if we're actually leaving the drop zone
+            if (event.clientX < rect.left || event.clientX > rect.right ||
+                event.clientY < rect.top || event.clientY > rect.bottom) {
+                dropZone.classList.remove('drag-over');
+                textarea.classList.remove('drag-over');
+            }
+        }
+
+        // Syntax Highlighting Functions
+        let currentView = 'edit';
+
+        function switchView(view) {
+            currentView = view;
+            const textarea = document.getElementById('codeInput');
+            const codeDisplay = document.getElementById('codeDisplay');
+            const toggleBtns = document.querySelectorAll('.toggle-btn');
+
+            // Update button states
+            toggleBtns.forEach(btn => {
+                btn.classList.remove('active');
+                if (btn.textContent.includes(view === 'edit' ? 'Edit' : 'Preview')) {
+                    btn.classList.add('active');
+                }
+            });
+
+            if (view === 'edit') {
+                textarea.style.display = 'block';
+                codeDisplay.classList.remove('show');
+                textarea.focus();
+            } else {
+                textarea.style.display = 'none';
+                codeDisplay.classList.add('show');
+                updateCodeDisplay();
+            }
+
+            // Visual feedback
+            const rect = event.target.getBoundingClientRect();
+            createParticleBurst(rect.left + rect.width / 2, rect.top + rect.height / 2, 6, '#3498db');
+        }
+
+        function updateCodeDisplay() {
+            const textarea = document.getElementById('codeInput');
+            const codeElement = document.querySelector('#codeDisplay code');
+
+            if (codeElement && textarea.value) {
+                // Escape HTML and update content
+                const escaped = textarea.value
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+
+                codeElement.textContent = escaped;
+
+                // Re-highlight with Prism
+                setTimeout(() => {
+                    Prism.highlightElement(codeElement);
+                }, 10);
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+
+            const textarea = document.getElementById('codeInput');
+            const dropZone = textarea.parentElement;
+
+            dropZone.classList.remove('drag-over');
+            textarea.classList.remove('drag-over');
+
+            const presetName = event.dataTransfer.getData('text/plain');
+            if (presetName && presets[presetName]) {
+                const preset = presets[presetName];
+
+                // Create success burst at drop location
+                createParticleBurst(event.clientX, event.clientY, 12, '#27ae60');
+
+                // Insert code at cursor position or replace all
+                const cursorPos = textarea.selectionStart;
+                const currentValue = textarea.value;
+                const beforeCursor = currentValue.substring(0, cursorPos);
+                const afterCursor = currentValue.substring(cursorPos);
+
+                if (currentValue.trim() === '' || currentValue.includes('// Paste your buggy TypeScript code here')) {
+                    // Replace default content
+                    textarea.value = preset.code;
+                } else {
+                    // Insert at cursor with some spacing
+                    const insertText = (beforeCursor.endsWith('\n') ? '' : '\n\n') + preset.code + '\n\n';
+                    textarea.value = beforeCursor + insertText + afterCursor;
+                }
+
+                // Focus and set cursor position
+                textarea.focus();
+                const newCursorPos = beforeCursor.length + preset.code.length + 2;
+                textarea.setSelectionRange(newCursorPos, newCursorPos);
+
+                addToOutput(`🎯 Dropped preset: ${preset.description}`, 'success');
+
+                // Add typing effect
+                textarea.classList.add('typing');
+                setTimeout(() => textarea.classList.remove('typing'), 1000);
+
+                // Success animation on textarea
+                textarea.style.animation = 'successPulse 0.5s ease-in-out';
+                setTimeout(() => textarea.style.animation = '', 500);
+
+                // Update code display if in preview mode
+                if (currentView === 'preview') {
+                    updateCodeDisplay();
+                }
+            }
+        }
+
+        function addToOutput(message, type = 'normal') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+
+            let prefix = '';
+            let color = '';
+
+            switch(type) {
+                case 'success':
+                    prefix = '✅ ';
+                    color = '#27ae60';
+                    break;
+                case 'error':
+                    prefix = '❌ ';
+                    color = '#e74c3c';
+                    break;
+                case 'warning':
+                    prefix = '⚠️ ';
+                    color = '#f39c12';
+                    break;
+                case 'preset':
+                    prefix = '🎯 ';
+                    color = '#3498db';
+                    break;
+                default:
+                    prefix = '';
+                    color = '#2c3e50';
+            }
+
+            const messageElement = document.createElement('div');
+            messageElement.style.color = color;
+            messageElement.style.marginBottom = '5px';
+            messageElement.style.animation = 'fadeIn 0.5s ease-in-out';
+            messageElement.innerHTML = `<span style="color: #7f8c8d">[${timestamp}]</span> ${prefix}${message}`;
+
+            output.appendChild(messageElement);
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function updateMetrics(errors, confidence, attempts, trend) {
+            const cards = ['errorsCard', 'confidenceCard', 'attemptsCard', 'trendCard'];
+
+            // Add updating animation to cards
+            cards.forEach(cardId => {
+                const card = document.getElementById(cardId);
+                card.classList.add('updating');
+                setTimeout(() => card.classList.remove('updating'), 500);
+            });
+
+            // Animate value changes
+            const errorsElement = document.getElementById('errorsValue');
+            const confidenceElement = document.getElementById('confidenceValue');
+            const attemptsElement = document.getElementById('attemptsValue');
+            const trendElement = document.getElementById('trendValue');
+
+            const currentErrors = parseInt(errorsElement.textContent) || 0;
+            const currentConfidence = parseFloat(confidenceElement.textContent) || 0;
+            const currentAttempts = parseInt(attemptsElement.textContent) || 0;
+
+            animateValue(errorsElement, currentErrors, errors, 800);
+            animateValue(confidenceElement, currentConfidence, confidence * 100, 800);
+            animateValue(attemptsElement, currentAttempts, attempts, 800);
+
+            trendElement.textContent = trend.toUpperCase();
+
+            // Animate progress bars
+            const errorsProgress = document.getElementById('errorsProgress');
+            const confidenceProgress = document.getElementById('confidenceProgress');
+
+            errorsProgress.classList.add('animated');
+            confidenceProgress.classList.add('animated');
+
+            setTimeout(() => {
+                errorsProgress.style.width = `${Math.min(errors * 10, 100)}%`;
+                confidenceProgress.style.width = `${confidence * 100}%`;
+            }, 100);
+
+            // Add color coding to trend
+            trendElement.style.color = trend === 'improving' ? '#27ae60' :
+                                     trend === 'worsening' ? '#e74c3c' : '#f39c12';
+        }
+
+        function addAttemptEntry(attempt, errors, confidence, delta, status) {
+            const log = document.getElementById('attemptLog');
+            const entry = document.createElement('div');
+            entry.className = 'attempt-entry';
+            entry.style.animation = 'slideIn 0.5s ease-out';
+
+            const statusClass = status === 'improving' ? 'status-improving' :
+                              status === 'worsening' ? 'status-worsening' : 'status-plateauing';
+
+            const statusEmoji = status === 'improving' ? '✅' :
+                              status === 'worsening' ? '❌' : '⚠️';
+
+            entry.innerHTML = `
+                <strong>Attempt ${attempt}:</strong>
+                <span class="status-indicator ${statusClass}"></span>
+                Errors: ${errors} | Confidence: ${(confidence * 100).toFixed(1)}% |
+                Delta: ${delta > 0 ? '+' : ''}${delta}
+                ${statusEmoji}
+            `;
+
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+
+            // Add visual feedback for status
+            if (status === 'improving') {
+                entry.classList.add('success-burst');
+            }
+        }
+
+        async function runDebugger() {
+            const code = document.getElementById('codeInput').value.trim();
+            if (!code) {
+                const btn = document.getElementById('runBtn');
+                btn.classList.add('shake');
+                setTimeout(() => btn.classList.remove('shake'), 500);
+                alert('Please enter some code to debug!');
+                return;
+            }
+
+            const runBtn = document.getElementById('runBtn');
+            const runText = document.getElementById('runText');
+            const loading = document.getElementById('loading');
+
+            // Visual feedback for button click
+            const rect = runBtn.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            runBtn.classList.add('clicked');
+            createParticleBurst(centerX, centerY, 15, '#3498db');
+            runBtn.classList.add('glow');
+
+            setTimeout(() => {
+                runBtn.classList.remove('clicked');
+                runBtn.classList.remove('glow');
+            }, 300);
+
+            runBtn.disabled = true;
+            runText.textContent = '🔄 Analyzing...';
+            loading.classList.remove('hidden');
+
+            addToOutput('🚀 Starting gradient-based debugging analysis...', 'normal');
+            addToOutput(`📄 Code to analyze:\n${code}`, 'normal');
+
+            // Simulate the debugging process with enhanced visuals
+            const scenarios = [
+                { errors: 5, confidence: 0.3, delay: 1200, message: 'Initial analysis complete - found 5 potential issues' },
+                { errors: 3, confidence: 0.6, delay: 1500, message: 'Applied null check fix - reduced errors by 40%' },
+                { errors: 1, confidence: 0.8, delay: 1300, message: 'Optimized async handling - further improvement detected' },
+                { errors: 0, confidence: 0.95, delay: 1000, message: 'Final refinement - all errors resolved!' }
+            ];
+
+            attemptHistory = [];
+            let previousErrors = null;
+
+            for (let i = 0; i < scenarios.length; i++) {
+                const scenario = scenarios[i];
+                await new Promise(resolve => setTimeout(resolve, scenario.delay));
+
+                const delta = previousErrors !== null ? previousErrors - scenario.errors : 0;
+                let status = 'plateauing';
+
+                if (delta > 0) status = 'improving';
+                else if (delta < 0) status = 'worsening';
+
+                attemptHistory.push({
+                    attempt: i + 1,
+                    errors: scenario.errors,
+                    confidence: scenario.confidence,
+                    delta: delta,
+                    status: status
+                });
+
+                // Enhanced visual feedback for each attempt
+                if (delta > 0) {
+                    addToOutput(`🔄 Attempt ${i + 1}: ${scenario.message}`, 'success');
+                    addToOutput(`   ✅ IMPROVEMENT: ${delta} fewer errors detected!`, 'success');
+
+                    // Create success particles
+                    const outputRect = document.getElementById('output').getBoundingClientRect();
+                    createParticleBurst(outputRect.right - 50, outputRect.top + 50, 8, '#27ae60');
+                } else if (delta === 0) {
+                    addToOutput(`🔄 Attempt ${i + 1}: ${scenario.message}`, 'warning');
+                    addToOutput(`   ⚠️ PLATEAU: No change in error count`, 'warning');
+                } else {
+                    addToOutput(`🔄 Attempt ${i + 1}: ${scenario.message}`, 'error');
+                    addToOutput(`   ❌ REGRESSION: ${Math.abs(delta)} more errors`, 'error');
+                }
+
+                updateMetrics(scenario.errors, scenario.confidence, i + 1, status);
+                addAttemptEntry(i + 1, scenario.errors, scenario.confidence, delta, status);
+
+                previousErrors = scenario.errors;
+            }
+
+            // Final celebration
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            const finalErrors = scenarios[scenarios.length - 1].errors;
+            const finalConfidence = scenarios[scenarios.length - 1].confidence;
+
+            addToOutput(`\n📊 FINAL ANALYSIS:`, 'success');
+            if (finalErrors === 0) {
+                addToOutput(`✅ SUCCESS: All errors resolved!`, 'success');
+                // Big celebration burst
+                const container = document.querySelector('.container');
+                const containerRect = container.getBoundingClientRect();
+                createParticleBurst(containerRect.left + containerRect.width / 2,
+                                  containerRect.top + containerRect.height / 2, 20, '#27ae60');
+            } else {
+                addToOutput(`⚠️ PARTIAL: ${finalErrors} errors remaining`, 'warning');
+            }
+            addToOutput(`🎯 Final Confidence: ${(finalConfidence * 100).toFixed(1)}%`, 'normal');
+            addToOutput(`📈 Overall Trend: IMPROVING`, 'success');
+            addToOutput(`⚡ Improvement Velocity: 85.7%`, 'normal');
+            addToOutput(`🎲 Stagnation Risk: 12.3%`, 'normal');
+
+            // Reset UI with animation
+            runBtn.disabled = false;
+            runText.textContent = '🤖 Run Gradient Debugger';
+            loading.classList.add('hidden');
+
+            addToOutput('\n🎉 Analysis complete! The gradient-based debugger successfully identified and tracked error improvements.', 'success');
+        }
+
+        function clearOutput() {
+            const btn = event.target;
+            const rect = btn.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
+
+            // Visual feedback
+            btn.classList.add('shake');
+            createParticleBurst(centerX, centerY, 10, '#e74c3c');
+
+            setTimeout(() => btn.classList.remove('shake'), 500);
+
+            document.getElementById('output').textContent = '🚀 Output cleared. Ready for new analysis!';
+            document.getElementById('attemptLog').innerHTML = '<i>Attempt history cleared.</i>';
+            updateMetrics(0, 0, 0, 'UNKNOWN');
+            attemptHistory = [];
+
+            // Add fade effect
+            const output = document.getElementById('output');
+            output.style.animation = 'fadeOut 0.3s ease-out';
+            setTimeout(() => {
+                output.style.animation = '';
+            }, 300);
+        }
+
+        // Initialize with some floating animations
+        function initAnimations() {
+            const floatingElements = document.querySelectorAll('.floating-element');
+            floatingElements.forEach((element, index) => {
+                element.style.animationDelay = `${index * 0.5}s`;
+            });
+
+            // Add subtle pulse to metric cards
+            const metricCards = document.querySelectorAll('.metric-card');
+            metricCards.forEach((card, index) => {
+                setTimeout(() => {
+                    card.classList.add('pulse');
+                    setTimeout(() => card.classList.remove('pulse'), 2000);
+                }, index * 200);
+            });
+        }
+
+        // Initialize
+        updateMetrics(0, 0, 0, 'UNKNOWN');
+        addToOutput('🎮 Interactive demo ready! Choose a preset or paste your own code.');
+        addToOutput('🎯 Pro tip: Drag & drop preset buttons into the code area for instant insertion!', 'normal');
+        addToOutput('✨ New: Toggle between Edit and Preview modes for syntax highlighting!', 'normal');
+
+        // Set up initial code display
+        updateCodeDisplay();
+
+        // Auto-update preview when typing (with debounce)
+        let updateTimeout;
+        document.getElementById('codeInput').addEventListener('input', () => {
+            clearTimeout(updateTimeout);
+            updateTimeout = setTimeout(() => {
+                if (currentView === 'preview') {
+                    updateCodeDisplay();
+                }
+            }, 300);
+        });
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (event) => {
+            // Ctrl/Cmd + E for Edit mode
+            if ((event.ctrlKey || event.metaKey) && event.key === 'e') {
+                event.preventDefault();
+                switchView('edit');
+                document.querySelector('.toggle-btn[onclick*="edit"]').classList.add('active');
+                document.querySelector('.toggle-btn[onclick*="preview"]').classList.remove('active');
+            }
+            // Ctrl/Cmd + P for Preview mode
+            if ((event.ctrlKey || event.metaKey) && event.key === 'p') {
+                event.preventDefault();
+                switchView('preview');
+                document.querySelector('.toggle-btn[onclick*="preview"]').classList.add('active');
+                document.querySelector('.toggle-btn[onclick*="edit"]').classList.remove('active');
+            }
+        });
+
+        initAnimations();
+
+        // Add some ambient floating particles occasionally
+        setInterval(() => {
+            if (Math.random() < 0.1) { // 10% chance every 5 seconds
+                const x = Math.random() * window.innerWidth;
+                const y = Math.random() * window.innerHeight;
+                createParticle(x, y, '#3498db');
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+{
+  "name": "code-heals-itself-demo",
+  "version": "1.0.0",
+  "description": "Interactive demo for the Code Heals Itself gradient-based debugging system",
+  "main": "index.ts",
+  "scripts": {
+    "demo": "npx ts-node index.ts",
+    "demo:watch": "npx ts-node --watch index.ts",
+    "build": "npx tsc index.ts --outDir dist",
+    "serve": "npx http-server . -p 3000 -o"
+  },
+  "keywords": [
+    "ai",
+    "debugging",
+    "gradient",
+    "typescript",
+    "demo"
+  ],
+  "author": "Code Heals Itself Team",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
