@@ -15,10 +15,6 @@ The system uses inheritance to provide backward-compatible extensions that can b
 
 ### 1. ResilientMemoryBuffer
 
-**Extends:** `MemoryBuffer`  
-**Purpose:** Adds safe write operations and error handling to memory persistence  
-**Location:** `utils/typescript/extensions/inheritance_extensions.ts`
-
 #### How It Works
 
 The `ResilientMemoryBuffer` enhances the base `MemoryBuffer` with:
@@ -59,10 +55,6 @@ await memory.save('./memory.json');
 
 ### 2. AdaptivePatchEnvelope
 
-**Extends:** `AIPatchEnvelope`  
-**Purpose:** Adds continuity tracking and default constraints to patch envelopes  
-**Location:** `utils/typescript/extensions/inheritance_extensions.ts`
-
 #### How It Works
 
 The `AdaptivePatchEnvelope` enhances patch envelopes with:
@@ -95,20 +87,14 @@ const envelopeWrapper = new AdaptivePatchEnvelope();
 
 // Use exactly like the base AIPatchEnvelope
 const envelope = envelopeWrapper.wrapPatch({
+  # AI Self-Healing Code — Extensions (Opt-in)
   code: 'function fix() { return true; }',
   language: 'typescript'
 });
 
 // Envelope now includes continuity and safety metadata
-console.log(envelope.metadata.previous_patch_id); // Links to last patch
-console.log(envelope.metadata.max_lines_changed); // Conservative default
-```
 
 ### 3. ExtendedCodeErrorAnalyzer
-
-**Extends:** `CodeErrorAnalyzer`  
-**Purpose:** Adds additional syntax heuristics for better error detection  
-**Location:** `utils/typescript/extensions/inheritance_extensions.ts`
 
 #### How It Works
 
@@ -118,16 +104,12 @@ The `ExtendedCodeErrorAnalyzer` enhances error analysis with:
 - **Quality score adjustment:** Reduces quality score proportionally to detected issues
 - **Enhanced heuristics:** Builds on base analyzer with additional pattern recognition
 - **Non-breaking additions:** All base functionality preserved
-
 #### Key Features
 
 ```typescript
 // Detects lines like: "x = y +" (missing continuation)
-const result = ExtendedCodeErrorAnalyzer.analyzeCode(code);
 
 // Additional error detection
-if (result.errors.some(e => e.message.includes('operator'))) {
-  console.log('Found operator continuation issue');
 }
 
 // Adjusted quality score
@@ -145,13 +127,10 @@ function buggy() {
   const x = y +  // Missing continuation
   return x;
 }
-`, 'typescript');
 
 // Detects the operator issue and reduces quality score
 console.log(analysis.errorCount); // Includes operator error
 console.log(analysis.qualityScore); // < 1.0 due to error
-```
-
 ## How to Implement Extensions
 
 ### Step 1: Import the Extension
@@ -161,20 +140,13 @@ console.log(analysis.qualityScore); // < 1.0 due to error
 import {
   ResilientMemoryBuffer,
   AdaptivePatchEnvelope,
-  ExtendedCodeErrorAnalyzer
-} from './utils/typescript/extensions/inheritance_extensions';
 ```
 
-### Step 2: Replace Base Classes
 
-```typescript
 // Before (using base classes)
 import { MemoryBuffer, AIPatchEnvelope, CodeErrorAnalyzer } from './envelope';
 
 // After (using extensions)
-import { ResilientMemoryBuffer, AdaptivePatchEnvelope, ExtendedCodeErrorAnalyzer } from './extensions/inheritance_extensions';
-
-// Swap in extensions
 const memory = new ResilientMemoryBuffer();
 const envelope = new AdaptivePatchEnvelope();
 const analyzer = ExtendedCodeErrorAnalyzer;
@@ -183,50 +155,23 @@ const analyzer = ExtendedCodeErrorAnalyzer;
 ### Step 3: Configure Extensions (Optional)
 
 ```typescript
-// Configure with custom error handler
-const memory = new ResilientMemoryBuffer(200, (err) => {
   // Custom error handling
   sendToMonitoring(err);
-});
-
 // Use with default settings (inherits base behavior)
 const envelope = new AdaptivePatchEnvelope();
 ```
 
-### Step 4: Use Like Base Classes
-
-```typescript
 // All method signatures remain the same
 memory.addOutcome(envelopeJson);
 await memory.save('./data.json');
 
-const patch = envelope.wrapPatch(codeChanges);
-const analysis = analyzer.analyzeCode(sourceCode);
-```
-
-## Extension Benefits
-
 ### ResilientMemoryBuffer Benefits
-
-- **Reliability:** Never crashes due to disk I/O failures
-- **Observability:** Tracks and reports persistence issues
-- **Monitoring:** Provides metrics for system health
 - **Graceful degradation:** Continues operation during storage issues
-
 ### AdaptivePatchEnvelope Benefits
-
-- **Safety:** Enforces conservative constraints by default
-- **Continuity:** Maintains patch history for better decisions
-- **Auditability:** Clear metadata trail for compliance
-- **Production-ready:** Built-in safeguards for critical systems
 
 ### ExtendedCodeErrorAnalyzer Benefits
 
-- **Accuracy:** Catches more syntax issues with heuristics
-- **Quality metrics:** Better scoring for patch evaluation
-- **Pattern recognition:** Learns from common error patterns
 - **Non-intrusive:** Adds value without changing interfaces
-
 ## Testing Extensions
 
 ### Unit Testing
@@ -261,17 +206,9 @@ describe('Extension Integration', () => {
       analyzer: ExtendedCodeErrorAnalyzer
     });
     // Verify normal operation
-  });
-});
-```
-
 ## Best Practices
 
 ### When to Use Extensions
-
-- **Production systems:** Use `ResilientMemoryBuffer` for reliability
-- **Complex codebases:** Use `AdaptivePatchEnvelope` for safety constraints
-- **Quality-focused:** Use `ExtendedCodeErrorAnalyzer` for better detection
 - **Development:** Start with base classes, add extensions as needed
 
 ### Configuration Guidelines
@@ -285,19 +222,10 @@ describe('Extension Integration', () => {
 
 1. **Test extensions** in isolation first
 2. **Gradual rollout** - replace one component at a time
-3. **Monitor metrics** - watch for performance impacts
-4. **Fallback plan** - keep base classes as backup
-
 ## Troubleshooting
 
-### Common Issues
-
-**Extension not working as expected:**
 - Verify you're importing from the correct path
 - Check that you're calling the right methods
-- Ensure base class compatibility
-
-**Performance degradation:**
 - Monitor memory usage with large buffers
 - Check error callback overhead
 - Profile extension-specific operations
@@ -313,10 +241,6 @@ describe('Extension Integration', () => {
 // Enable debug logging for extensions
 const memory = new ResilientMemoryBuffer(100, (err) => {
   console.error('[DEBUG] Memory error:', err);
-  // Add debug information
-});
-```
-
 ## Future Extensions
 
 The extension system is designed to be extensible. Future enhancements may include:
@@ -328,7 +252,77 @@ The extension system is designed to be extensible. Future enhancements may inclu
 
 ## Contributing
 
-When adding new extensions:
+## Optional: Zod validation for successCelebration (copy-paste)
+
+If you want strict, runtime schema validation for the `success_celebration` payload (recommended for production), you can opt-in with Zod. The snippet below is copy/paste ready.
+
+1) Install Zod in your project (one-time):
+
+```bash
+npm install zod
+# or
+yarn add zod
+```
+
+2) Create a tiny file (example path: `src/extensions/enable-zod-success-validation.ts`) and paste the code below.
+
+```typescript
+// src/extensions/enable-zod-success-validation.ts
+import { z } from 'zod';
+import { Extensions } from '../../utils/typescript/extensions/inheritance_extensions';
+
+// Full, conservative schema for the success celebration payload
+const SuccessCelebrationSchema = z.object({
+  type: z.string(),
+  patch_id: z.string(),
+  success_metrics: z.object({
+    final_confidence: z.number(),
+    error_count: z.number().optional(),
+    attempts_required: z.number().optional()
+  }),
+  message: z.string().optional(),
+  celebration: z.object({
+    achievement: z.string().optional(),
+    threshold_exceeded: z.string().optional(),
+    jitter_delay_ms: z.number().optional()
+  }).optional(),
+  final_state: z.object({
+    code_polished: z.boolean().optional(),
+    linting_applied: z.boolean().optional(),
+    ready_for_deployment: z.boolean().optional()
+  }).optional(),
+  // optional hints we added for critical problems
+  hints: z.record(z.any()).optional()
+});
+
+export function enableZodSuccessValidation() {
+  // Replace the lightweight validator with a Zod-powered one
+  Extensions.validateSuccessCelebration = (payload: any): boolean => {
+    const result = SuccessCelebrationSchema.safeParse(payload);
+    if (!result.success) {
+      // Log the error (or send to telemetry) and return false to indicate invalid payload
+      // Use `result.error.format()` to get a structured error map
+      console.warn('SuccessCelebration validation failed:', result.error.format());
+      return false;
+    }
+    return true;
+  };
+}
+
+3) Enable it at app startup (e.g., where you initialize your AI debugger):
+
+```typescript
+import { enableZodSuccessValidation } from './extensions/enable-zod-success-validation';
+
+// Now Extensions.validateSuccessCelebration(payload) will run the Zod schema.
+```
+
+Notes:
+- This is optional; if you don't enable it the small built-in validator remains in place.
+- You can customize the schema to include additional fields you care about (e.g., `error_signature`, `trend_velocity`).
+- If validation fails you can decide whether to reject the celebration payload, log it for auditing, or quietly send it anyway with telemetry.
+
+
 
 1. Extend existing base classes using inheritance
 2. Maintain backward compatibility

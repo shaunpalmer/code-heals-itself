@@ -149,6 +149,13 @@ export const defaultSystemPrompt = (
   'Respond with the minimal corrected code (or JSON with {"patched_code"}) only. Avoid commentary unless requested.'
 );
 
+/**
+ * TODO(API): Provide JSON Schema / OpenAPI snippets for function-calling
+ * - Function: debugCode({ error_type, message, patch_code, original_code, logits?, sessionId? }) → { action, envelope, extras }
+ * - Endpoint: GET /api/openapi.json → aggregate spec
+ * Consumers: LangChain OpenAPI Toolkit, LlamaIndex tool calling, CrewAI MCP.
+ */
+
 // Structured container for LLM replies for persistence and intent classification
 export class LLMResponse {
   readonly rawText: string;

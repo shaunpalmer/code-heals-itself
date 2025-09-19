@@ -1,0 +1,48 @@
+{
+  "info": {
+    "name": "Code Heals Itself API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "self-healer-collection"
+  },
+  "item": [
+    {
+      "name": "Health (JSON)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+    },
+    {
+      "name": "Health (Prometheus)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health?format=prom" }
+    },
+    {
+      "name": "Run Debug Attempt",
+      "request": {
+        "method": "POST",
+        "header": [{"key": "Content-Type", "value": "application/json"}],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"error_type\": \"SYNTAX\",\n  \"message\": \"Fix missing semicolon\",\n  \"patch_code\": \"const x=1\",\n  \"original_code\": \"const x=1;\"\n}"
+        },
+        "url": "{{baseUrl}}/api/debug/run"
+      }
+    },
+    {
+      "name": "List Envelopes",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/envelopes?limit=10" }
+    },
+    {
+      "name": "Input Schema",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/schemas/debug.json" }
+    },
+    {
+      "name": "Output Schema",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/schemas/debug.out.json" }
+    },
+    {
+      "name": "OpenAPI",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/openapi.json" }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8787" }
+  ]
+}

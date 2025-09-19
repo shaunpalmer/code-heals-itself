@@ -82,6 +82,13 @@ export class ChatMessageHistoryAdapter {
   }
 }
 
+/**
+ * TODO(API): History endpoints for pull integrations
+ * - GET /api/history/similar?message=...&code=... → recent similar envelopes/messages
+ * - GET /api/chat/:session/messages?limit=100 → chat transcript (for LangChain/LlamaIndex context)
+ * - POST /api/chat/:session/message → external agent pushes messages to our memory mirror
+ */
+
 function safeJson(obj: any): string {
   try {
     return JSON.stringify(obj);

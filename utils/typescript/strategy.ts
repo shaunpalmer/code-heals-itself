@@ -1,6 +1,8 @@
 abstract class DebuggingStrategy {
   abstract execute(context: Record<string, any>): Record<string, any>;
 }
+// Execute the strategy against provided context.
+// Concrete subclasses return a structured outcome.
 
 class LogAndFixStrategy extends DebuggingStrategy {
   execute(context: Record<string, any>): Record<string, any> {
@@ -62,22 +64,7 @@ class Debugger {
   }
 }
 
-// Usage example
-const debugInstance = new Debugger(new LogAndFixStrategy());
-
-const context = { error: "Null pointer exception" };
-const result = debugInstance.debug(context);
-console.log(JSON.stringify(result, null, 2));
-
-// Switch to rollback strategy
-debugInstance.setStrategy(new RollbackStrategy());
-const result2 = debugInstance.debug(context);
-console.log(JSON.stringify(result2, null, 2));
-
-// Security strategy
-debugInstance.setStrategy(new SecurityAuditStrategy());
-const securityContext = { vulnerability: "Buffer overflow" };
-const result3 = debugInstance.debug(securityContext);
-console.log(JSON.stringify(result3, null, 2));
+// NOTE: Removed side-effect demo execution to keep module import clean.
+// If you need a manual demo, create a separate script or call these classes directly.
 
 export { DebuggingStrategy, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy, Debugger };

@@ -1,4 +1,35 @@
 // ai-debugging.ts
+/**
+ * TODO(API): Expose AIDebugger via minimal REST/function endpoints for ecosystem integration (LangChain, LlamaIndex, CrewAI).
+ *
+ * Suggested endpoints (pull-style):
+ * - POST /api/debug/run
+ *   Input JSON: {
+ *     error_type: 'SYNTAX'|'LOGIC'|'RUNTIME'|'PERFORMANCE'|'SECURITY',
+ *     message: string,
+ *     patch_code: string,
+ *     original_code: string,
+ *     logits?: number[],
+ *     sessionId?: string
+ *   }
+ *   Response: { action: string; envelope: PatchEnvelopeJson; extras: any }
+ *   Notes: Primary entrypoint for LangChain/LlamaIndex/CrewAI function-calling.
+ *
+ * - GET /api/envelopes/:id
+ *   Response: PatchEnvelopeJson (from AIPatchEnvelope/Memory store)
+ *
+ * - GET /api/history/similar?message=...&code=...
+ *   Response: Array<{ envelope: PatchEnvelopeJson; timestamp: string }>
+ *
+ * - GET /api/openapi.json
+ *   Response: OpenAPI spec describing the above routes for OpenAPI toolkits.
+ *
+ * Push/Bi-directional (optional):
+ * - GET /api/chat/:session/stream (SSE) → stream celebration + backoff envelopes
+ * - POST /api/chat/:session/message → mirror external agent messages into our memory
+ *
+ * See: "Fitting in with the crowd.md" for integration patterns and standards.
+ */
 import {
   UnifiedConfidenceScorer, DualCircuitBreaker, ErrorType, ConfidenceScore
 } from "./utils/typescript/confidence_scoring";
@@ -11,12 +42,19 @@ import { SeniorDeveloperSimulator } from "./utils/typescript/human_debugging";
 import { TrendAwareCircuitBreaker } from "./utils/typescript/trend_aware_circuit_breaker";
 import { CodeErrorAnalyzer } from "./utils/typescript/code_error_analyzer";
 import { HangWatchdog, RiskyEditObserver, escalateSuspicion } from "./utils/typescript/observer";
+import { PathResolutionObserver } from "./utils/typescript/path_resolution_observer";
 import Ajv from "ajv";
 import * as fs from "fs";
 import * as path from "path";
 import { sleep, withJitter, suggestBackoffMs, pauseAndJitterConsult, BackoffPolicy, DefaultBackoffPolicy } from "./utils/typescript/backoff";
 import { buildJitterEnvelope, extractProposedPatch, defaultSystemPrompt, LLMAdapter, LLMResponse, PatchResult } from "./utils/typescript/jitter_comms";
 import ChatMessageHistoryAdapter from "./utils/typescript/memory_adapter";
+import { FinalPolishObserver, createFinalPolishObserver } from "./utils/typescript/final_polish_observer";
+import { validateSuccessEnvelope } from "./src/extensions/enable-zod-success-validation";
+// Optional lint runners (fail-open if not installed)
+import createEnhancedESLintRunner from "./src/extensions/eslint-enhanced-runner";
+// Stylelint integration (optional; reporter used for metadata only)
+import { createStylelintReporter } from "./src/extensions/stylelint-runner";
 
 export interface HealerPolicy {
   syntax_conf_floor: number;
@@ -29,6 +67,21 @@ export interface HealerPolicy {
   sandbox_isolation: "full" | "partial" | "none";
   require_human_on_risky: boolean;
   risky_keywords: string[];
+  /**
+   * Engage: true → run Zod validation on success envelopes before sending to LLM
+   * Disengage: false/undefined → skip validation (default, lightweight)
+   */
+  enable_zod_validation?: boolean;
+  /**
+   * Engage: true → use enhanced ESLint runner (import + security plugins) during final polish
+   * Disengage: false/undefined → use lightweight built-in formatter only
+   */
+  enable_enhanced_eslint?: boolean;
+  /**
+   * Engage: true → collect Stylelint findings and attach compact report to envelope.metadata.stylelint
+   * Disengage: false/undefined → do not run Stylelint (default)
+   */
+  enable_stylelint?: boolean;
 }
 export const defaultPolicy: HealerPolicy = {
   // Mid-tier model settings (realistic for Llama 3, Mistral, older GPT-3.5)
@@ -37,7 +90,10 @@ export const defaultPolicy: HealerPolicy = {
   syntax_error_budget: 0.10, logic_error_budget: 0.20, // 10% and 20% error budgets
   rate_limit_per_min: 15, sandbox_isolation: "full",
   require_human_on_risky: true,
-  risky_keywords: ["database_schema_change", "authentication_bypass", "production_data_modification"]
+  risky_keywords: ["database_schema_change", "authentication_bypass", "production_data_modification"],
+  enable_zod_validation: false, // Disabled by default for backward compatibility
+  enable_enhanced_eslint: false,
+  enable_stylelint: false
 };
 
 // Predefined policies for different model capability classes
@@ -81,6 +137,8 @@ export class AIDebugger {
   private backoffPolicy: BackoffPolicy = new DefaultBackoffPolicy();
   private watchdog: HangWatchdog = new HangWatchdog(5000, 90);
   private riskObserver: RiskyEditObserver;
+  private pathObserver: PathResolutionObserver;
+  private finalPolishObserver: FinalPolishObserver;
 
   constructor(policy: Partial<HealerPolicy> = {}) {
     this.policy = { ...defaultPolicy, ...policy };
@@ -95,6 +153,17 @@ export class AIDebugger {
       this.policy.sandbox_isolation as any // Cast to match IsolationLevel type if needed
     );
     this.riskObserver = new RiskyEditObserver(this.policy.risky_keywords, 50);
+    // Optionally swap in enhanced ESLint runner while keeping fail-open behavior
+    const eslintRunner = this.policy.enable_enhanced_eslint
+      ? createEnhancedESLintRunner({ alias: { '@': './src' } })
+      : undefined;
+
+    this.finalPolishObserver = createFinalPolishObserver(
+      true, // Base ESLint formatting in FinalPolishObserver
+      this.policy.enable_zod_validation ? validateSuccessEnvelope : undefined,
+      eslintRunner
+    );
+    this.pathObserver = new PathResolutionObserver(process.cwd());
   }
 
   process_error(
@@ -119,6 +188,14 @@ export class AIDebugger {
         (envelope.metadata as any).risk_flags = riskFlags;
       }
     } catch { /* ignore risk flag errors */ }
+
+    // Evaluate import/asset path resolution (best-effort)
+    try {
+      const missing = this.pathObserver.evaluate(patch_code, /* sourceFilePath */ undefined);
+      if (missing && missing.length > 0) {
+        (envelope.metadata as any).missing_paths = missing;
+      }
+    } catch { /* non-fatal: best-effort */ }
 
     // Populate schema-required fields
     const conf: ConfidenceScore = this.scorer.calculate_confidence(logits, error_type, historical);
@@ -321,7 +398,106 @@ export class AIDebugger {
     env.success = env.success || ok;
   }
   private finalize(env: PatchEnvelope, action: string, extras: Record<string, any>) {
+    // Check for final polish opportunity (95% confidence + zero errors)
+    if (action === 'PROMOTE') {
+      this.checkAndApplyFinalPolish(env, extras);
+    }
+
     return { action, envelope: JSON.parse(env.toJson()), extras };
+  }
+
+  /**
+   * Check if we should apply final polish and send success message to LLM
+   */
+  private async checkAndApplyFinalPolish(env: PatchEnvelope, extras: Record<string, any>): Promise<void> {
+    try {
+      // Extract confidence and error information from various sources
+      const confidence = extras.confidence || env.confidenceComponents?.overall || 0;
+      const errorCount = env.trendMetadata?.errorsDetected || 0;
+      const patchCode = typeof env.patchData === 'string' ? env.patchData :
+        (env.patchData?.code || JSON.stringify(env.patchData) || '');
+
+      // Check if we meet the 95% threshold
+      if (this.finalPolishObserver.shouldApplyFinalPolish(confidence, errorCount)) {
+        // Add to telemetry instead of console logging
+        this.telemetry.onAttempt?.({
+          envelope: { type: 'final_polish_triggered', confidence, errorCount },
+          breakerSummary: { final_polish: 'conditions_met' },
+          llmReply: null,
+          waitMs: 0,
+          rationale: `95_percent_threshold_met_confidence_${(confidence * 100).toFixed(1)}_errors_${errorCount}`
+        });
+
+        // Apply final polish (linting)
+        const polishResult = await this.finalPolishObserver.applyFinalPolish(
+          patchCode,
+          confidence,
+          errorCount,
+          env.patchId
+        );
+
+        if (polishResult.shouldLint && polishResult.finalCode) {
+          // Update the envelope with polished code
+          if (typeof env.patchData === 'string') {
+            env.patchData = { code: polishResult.finalCode, polished: true };
+          } else {
+            env.patchData.code = polishResult.finalCode;
+            env.patchData.polished = true;
+          }
+          env.success = true;
+
+          // Mark that final polish was applied
+          if (!env.metadata) env.metadata = {};
+          (env.metadata as any).finalPolishApplied = true;
+          (env.metadata as any).finalPolishTimestamp = new Date().toISOString();
+          (env.metadata as any).achievedConfidence = confidence;
+
+          // Optionally run Stylelint reporter and attach results (engage/disengage via policy)
+          if (this.policy.enable_stylelint && this.isCssLike(polishResult.finalCode)) {
+            try {
+              const reporter = createStylelintReporter();
+              const stylelintReport = await reporter(polishResult.finalCode, { filename: env?.patchId ? `${env.patchId}.scss` : undefined });
+              (env.metadata as any).stylelint = stylelintReport;
+            } catch (e) {
+              (env.metadata as any).stylelint = { errored: false, warnings: [], note: `[stylelint] integration failed: ${(e as any)?.message || String(e)}` };
+            }
+          }
+        }
+
+        // Create success envelope for LLM communication
+        const successEnvelope = this.finalPolishObserver.createSuccessEnvelope(
+          env.patchId || 'unknown',
+          confidence,
+          polishResult.finalCode || patchCode,
+          (env.metadata as any)?.attempt || 1,
+          env.metadata
+        );
+
+        // Store the success envelope for potential LLM communication
+        // (The actual sending will happen in attemptWithBackoff where chat is available)
+        extras.successCelebration = successEnvelope;
+        extras.finalPolishApplied = true;
+
+        // Send completion telemetry instead of console logging
+        this.telemetry.onAttempt?.({
+          envelope: { type: 'final_polish_completed', patchId: env.patchId },
+          breakerSummary: { final_polish: 'completed', linting_applied: polishResult.shouldLint },
+          llmReply: 'FINAL_POLISH_READY_FOR_LLM',
+          waitMs: 0,
+          rationale: 'final_polish_completed_success_message_prepared'
+        });
+      }
+    } catch (error) {
+      // Send error to telemetry instead of console logging
+      this.telemetry.onAttempt?.({
+        envelope: { type: 'final_polish_error', error: error instanceof Error ? error.message : String(error) },
+        breakerSummary: { final_polish: 'failed' },
+        llmReply: null,
+        waitMs: 0,
+        rationale: 'final_polish_check_failed'
+      });
+      // Don't let polish failures break the main flow
+    }
   }
   private is_risky(patch: Record<string, any>) {
     const blob = JSON.stringify(patch).toLowerCase();
@@ -442,6 +618,44 @@ export class AIDebugger {
             memory_metrics: metrics ?? null
           }, { phase: 'final' });
         } catch { /* ignore chat errors */ }
+
+        // 🎉 SEND SUCCESS CELEBRATION TO LLM IF FINAL POLISH WAS APPLIED
+        if (result.action === 'PROMOTE' && result.extras?.finalPolishApplied && result.extras?.successCelebration) {
+          try {
+            await this.finalPolishObserver.sendSuccessToLLM(
+              chat,
+              result.extras.successCelebration
+            );
+
+            // Send success telemetry to LLM via chat instead of console logging
+            chat.addMessage('tool', {
+              type: 'success_celebration_complete',
+              confidence_achieved: result.extras.successCelebration.success_metrics.final_confidence,
+              polish_applied: true,
+              achievement: 'high_confidence_healing_with_polish',
+              message: result.extras.successCelebration.message,
+              timestamp: new Date().toISOString()
+            }, { phase: 'celebration' });
+
+            // Also add to telemetry sink for structured logging
+            this.telemetry.onAttempt?.({
+              envelope: result.extras.successCelebration,
+              breakerSummary: { celebration: 'success', confidence_threshold_met: true },
+              llmReply: 'SUCCESS_CELEBRATION_SENT',
+              waitMs: result.extras.successCelebration.celebration?.jitter_delay_ms || 300,
+              rationale: 'final_polish_applied_95_percent_confidence'
+            });
+
+          } catch (error) {
+            // Log error to telemetry instead of console
+            chat.addMessage('tool', {
+              type: 'success_celebration_error',
+              error: error instanceof Error ? error.message : String(error),
+              timestamp: new Date().toISOString()
+            }, { phase: 'error' });
+          }
+        }
+
         // Surface observer aggregates in extras for telemetry
         return { ...result, extras: { ...result.extras, observers: { ...(result.extras?.observers || {}), watchdog_flag_count: watchdogAggregate.watchdog_flag_count } } };
       }
@@ -581,6 +795,19 @@ export class AIDebugger {
       }
     }
     return out;
+  }
+
+  // Heuristic: consider code CSS/SCSS-like if it contains selectors/braces without JS keywords,
+  // or common SCSS at-rules. Very lightweight and conservative.
+  private isCssLike(src?: string): boolean {
+    if (!src) return false;
+    const s = src.trim();
+    if (s.length < 8) return false;
+    const hasBraces = /\{[\s\S]*\}/.test(s);
+    const hasSelectors = /[#\.]?[a-zA-Z][\w-]*\s*\{/.test(s) || /:\s*[a-zA-Z-]+\s*;/.test(s);
+    const scssAt = /@(use|forward|import|mixin|include|function|if|else|for|each|while)\b/.test(s);
+    const jsHints = /(function|const|let|var|=>|class\s+[A-Za-z]|import\s+|export\s+)/.test(s);
+    return (hasBraces && hasSelectors) || scssAt ? !jsHints : false;
   }
 }
 

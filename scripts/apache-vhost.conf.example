@@ -1,0 +1,35 @@
+# Example Apache VirtualHost to reverse-proxy /api to the local Node server
+# Place this into C:/xampp/apache/conf/extra/httpd-vhosts.conf or include from httpd.conf
+# Make sure mod_proxy and mod_proxy_http are enabled in httpd.conf (uncomment LoadModule lines).
+
+<VirtualHost *:80>
+    ServerName localhost
+    DocumentRoot "C:/xampp/htdocs"
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    # Proxy only API path to local Node app running on port 8787
+    ProxyPass "/api" "http://127.0.0.1:8787/api"
+    ProxyPassReverse "/api" "http://127.0.0.1:8787/api"
+
+    # Optional: proxy root for a subdomain e.g. api.localhost
+    # <IfModule mod_proxy.c>
+    #   ProxyPass "/" "http://127.0.0.1:8787/"
+    #   ProxyPassReverse "/" "http://127.0.0.1:8787/"
+    # </IfModule>
+
+    <Directory "C:/xampp/htdocs">
+        Require all granted
+        AllowOverride All
+    </Directory>
+
+    # Logging (adjust paths if needed)
+    ErrorLog "logs/selfheal-error.log"
+    CustomLog "logs/selfheal-access.log" combined
+</VirtualHost>
+
+# Notes:
+# - After adding this file, restart Apache via the XAMPP Control Panel.
+# - For SSL/HTTPS, configure a separate <VirtualHost *:443> block and set SSLCertificateFile/Key.
+# - Keep Node app separate (do not copy node_modules or src into htdocs). Use this proxy to route requests.

@@ -105,6 +105,11 @@ class AIPatchEnvelope extends PatchWrapper {
     return envelope;
   }
 
+  /**
+   * TODO(API): Expose read-only GET /api/envelopes/:id → PatchEnvelopeJson
+   * and optionally GET /api/envelopes (latest N) for agent toolkits.
+   */
+
   unwrapAndExecute(envelope: PatchEnvelope): Record<string, any> {
     // Check if this is a "big error" that should be flagged
     if (this.isBigError(envelope.patchData)) {

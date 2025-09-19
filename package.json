@@ -25,6 +25,16 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -w",
     "start": "node dist/index.js",
+    "start:api": "node dist/src/server/api.js",
+    "start:mcp": "node dist/src/mcp/server.js",
+  "status": "node scripts/status.js",
+  "ensure:api": "node scripts/ensure-api-server.js",
+  "integrate:auto": "node scripts/auto-integrate.js",
+  "setup:apache-vhost": "powershell -ExecutionPolicy Bypass -File scripts/apache-deploy-helper.ps1",
+  "setup:pm2": "powershell -ExecutionPolicy Bypass -File scripts/pm2-setup.ps1",
+  "setup:nssm": "powershell -ExecutionPolicy Bypass -File scripts/nssm-install.ps1",
+  "setup:all": "powershell -ExecutionPolicy Bypass -File scripts/setup-all.ps1",
+  "setup:opinionated": "powershell -ExecutionPolicy Bypass -File scripts/setup-opinionated.ps1",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "jest",
     "test:ts": "jest",
@@ -40,7 +50,8 @@
     "@modelcontextprotocol/sdk": "^1.12.1",
     "chalk": "^4.1.2",
     "inquirer": "^8.2.5",
-    "ora": "^5.4.1"
+    "ora": "^5.4.1",
+    "zod": "^4.1.9"
   },
   "optionalDependencies": {
     "boxen": "^7.1.1",

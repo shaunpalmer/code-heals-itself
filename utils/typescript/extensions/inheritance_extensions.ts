@@ -93,3 +93,32 @@ export default {
   AdaptivePatchEnvelope,
   ExtendedCodeErrorAnalyzer
 };
+
+/**
+ * Extendable Hooks
+ *
+ * Small, discoverable place for optional hooks/extensions such as schema
+ * validation (Zod) or custom enrichment of outgoing payloads. Keep these
+ * local and optional so consumers can opt-in.
+ *
+ * Example usage (pseudo-code):
+ *
+ * // import { z } from 'zod';
+ * // const CelebrationSchema = z.object({ type: z.string(), patch_id: z.string(), success_metrics: z.object({ final_confidence: z.number() }) });
+ * // function validateCelebration(payload) { return CelebrationSchema.safeParse(payload); }
+ *
+ * To keep runtime small we provide a tiny local validator that checks only
+ * the minimal shape and can be swapped for a Zod-based validator in
+ * production. Consumers can override/replace this function via import.
+ */
+
+export const Extensions = {
+  // Minimal runtime validator - returns true if payload loosely matches expected shape
+  validateSuccessCelebration(payload: any): boolean {
+    if (!payload || typeof payload !== 'object') return false;
+    if (typeof payload.type !== 'string') return false;
+    if (typeof payload.patch_id !== 'string') return false;
+    if (!payload.success_metrics || typeof payload.success_metrics.final_confidence !== 'number') return false;
+    return true;
+  }
+};
