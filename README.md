@@ -202,6 +202,8 @@ Attempt 5: Edge cases → 12→3 errors (Δ = +9 improvement)
 ### 📋 **Getting Started**
 1. **Fork & Clone**: `git clone https://github.com/shaunpalmer/code-heals-itself.git`
 2. **Read the Docs**: Start with [EXTENSIONS.md](EXTENSIONS.md) and [Debugging algorithm.md](Debugging%20algorithm.md)
+   - Learn about optional extensions: ESLint enhanced runner, Stylelint integration, Zod validation, and NPM audit
+   - Understand inheritance-based extensions for ResilientMemoryBuffer, AdaptivePatchEnvelope, and ExtendedCodeErrorAnalyzer
 3. **Run Tests**: `npm test` (59 tests should pass)
 4. **Pick an Issue**: Look for `good first issue` or `help wanted` labels
 5. **Join Discord**: Chat with maintainers and contributors

@@ -7,6 +7,12 @@ Lightweight, dependency-free HTTP API for integrating with LangChain, LlamaIndex
 - Start: `node dist/src/server/api.js`
 - Health check: `curl http://localhost:8787/health`
 
+## Deployment Options
+- **Direct Access**: `http://localhost:8787/api/*`
+- **Apache Reverse Proxy**: `http://localhost/api/*` (see `docs/apache-reverse-proxy.md`)
+- **Docker**: Containerized deployment
+- **Cloud**: AWS Lambda, Vercel, etc. (see deployment docs)
+
 ## Endpoints
 
 ### Debug Operations

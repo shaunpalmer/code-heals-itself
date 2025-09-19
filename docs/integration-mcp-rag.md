@@ -5,9 +5,11 @@ Provides a Model Context Protocol (MCP) server exposing:
 - rag.search → Query a lightweight in-memory context index
 - rag.add    → Insert/update ephemeral documents in the index
 
+**TypeScript Support**: Full TypeScript implementation with type safety and IntelliSense support.
+
 ## Running the Server
 
-```
+```bash
 npm run build
 npm run start:mcp
 ```
@@ -17,44 +19,68 @@ command: node
 args: ["dist/src/mcp/server.js"]
 ```
 
-## Tools
+## Script Support
 
-### debug.run
-Input:
+### Status Monitoring
+Check MCP server health and available tools:
+```bash
+npm run status
+# Output: MCP server: UP (tools: debug.run, rag.search, rag.add)
 ```
-{
-  "error_type": "SYNTAX|LOGIC|RUNTIME|PERFORMANCE|SECURITY",
-  "message": "...",
-  "patch_code": "...",
-  "original_code": "...",
-  "logits?": number[],
-  "sessionId?": string,
-  "maxAttempts?": 1
+
+### Auto-Integration
+Automatically detect and configure MCP server:
+```bash
+npm run integrate:auto
+# Detects MCP status and provides connection guidance
+```
+
+### Probe Mode
+Get server information without starting full MCP session:
+```bash
+node dist/src/mcp/server.js --probe
+# Returns: {"tools":["debug.run","rag.search","rag.add"]}
+```
+
+### Service Management
+Run MCP as a background service:
+```bash
+# Using PM2
+npm run setup:pm2
+
+# Using NSSM (Windows Service)
+npm run setup:nssm
+```
+
+## TypeScript Types
+
+The MCP server is built with full TypeScript support. Key interfaces:
+
+```typescript
+interface DebugRunInput {
+  error_type: "SYNTAX" | "LOGIC" | "RUNTIME" | "PERFORMANCE" | "SECURITY";
+  message: string;
+  patch_code: string;
+  original_code: string;
+  logits?: number[];
+  sessionId?: string;
+  maxAttempts?: number;
 }
-```
-Output (truncated example):
-```
-{"action":"SUCCESS","envelope":{"patch_id":"..."},"extras":{}}
-```
 
-### rag.search
-Input:
-```
-{ "query": "risk", "limit": 3 }
-```
-Output:
-```
-{ "results": [ { "id": "risk", "score": 2, "snippet": "Risk observer flags..." } ] }
-```
+interface RagSearchInput {
+  query: string;
+  limit?: number;
+}
 
-### rag.add
-Input:
-```
-{ "id": "doc42", "content": "Describes advanced circuit breaking", "tags": ["breaker","policy"] }
-```
-Output:
-```
-{ "added": true, "size": 4 }
+interface RagAddInput {
+  id: string;
+  content: string;
+  tags: string[];
+}
+
+interface McpProbeResponse {
+  tools: string[];
+}
 ```
 
 ## Extending RAG
