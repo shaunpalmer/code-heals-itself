@@ -11,6 +11,11 @@ from confidence_scoring import (
 )
 from cascading_error_handler import CascadingErrorHandler, SandboxExecution, Environment
 from envelope import AIPatchEnvelope, PatchEnvelope, MemoryBuffer
+from utils.python.envelope_helpers import (
+    append_attempt, mark_success, update_counters, add_timeline_entry,
+    set_envelope_timestamp, set_envelope_hash, merge_confidence, update_trend,
+    set_breaker_state, set_cascade_depth, merge_resource_usage, apply_developer_flag
+)
 from strategy import Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy
 from human_debugging import SeniorDeveloperSimulator
 import jsonschema
@@ -187,13 +192,19 @@ class AIDebugger:
         }.get(name, LogAndFixStrategy())
 
     def _record_attempt(self, env: PatchEnvelope, success: bool, note: str = ""):
-        env.attempts.append({
-            "ts": time.time(),
-            "success": success,
-            "note": note,
-            "breaker": self.breaker.get_state_summary(),
-        })
-        env.success = env.success or success
+        # Work on underlying dict for helper compatibility
+        edict = env.__dict__
+        bsum = self.breaker.get_state_summary()
+        append_attempt(edict, success=success, note=note, breaker_state=bsum.get("state", "CLOSED"), failure_count=bsum.get("failure_count"))
+        mark_success(edict, success)
+        # Determine kind heuristically from note / breaker summary
+        kind = 'syntax' if 'syntax' in note.lower() else ('logic' if 'logic' in note.lower() else 'other')
+        update_counters(edict, kind=kind, errors_resolved=0)
+        attempt_no = edict.get('counters', {}).get('totalAttempts', len(edict.get('attempts', [])))
+        add_timeline_entry(edict, attempt=attempt_no, breaker_state=bsum.get('state'), action='promote' if success else 'continue')
+        # Refresh timestamp & hash late (not stable across attempts; hash excludes attempts/timestamp internally)
+        set_envelope_timestamp(edict)
+        set_envelope_hash(edict)
 
     def _finalize(self, env: PatchEnvelope, action: str, extras: Dict[str, Any]) -> Dict[str, Any]:
         payload = {

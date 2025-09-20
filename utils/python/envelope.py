@@ -1,8 +1,12 @@
 import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from .envelope_helpers import (
+    append_attempt, mark_success as helper_mark_success,
+    set_envelope_timestamp, set_envelope_hash
+)
 
 @dataclass
 class PatchEnvelope:
@@ -10,13 +14,23 @@ class PatchEnvelope:
     patch_data: Dict[str, Any]
     metadata: Dict[str, Any]
     attempts: List[Dict[str, Any]]
-    confidenceComponents: Dict[str, float] = None
+    confidenceComponents: Dict[str, float] = field(default_factory=dict)
     breakerState: str = "CLOSED"
     cascadeDepth: int = 0
-    resourceUsage: Dict[str, Any] = None
+    resourceUsage: Dict[str, Any] = field(default_factory=dict)
     flagged_for_developer: bool = False
     developer_message: str = ""
+    developer_flag_reason: str | None = None
     success: bool = False
+    # Additional parity fields
+    trend_metadata: Dict[str, Any] = field(default_factory=lambda: {
+        "errorsDetected": 0,
+        "errorsResolved": 0,
+        "errorTrend": "unknown"
+    })
+    counters: Dict[str, int] = field(default_factory=dict)
+    timeline: List[Dict[str, Any]] = field(default_factory=list)
+    envelope_hash: str | None = None
 
     def to_json(self) -> str:
         return json.dumps({
@@ -28,8 +42,13 @@ class PatchEnvelope:
             "breakerState": self.breakerState,
             "cascadeDepth": self.cascadeDepth,
             "resourceUsage": self.resourceUsage or {},
+            "trendMetadata": self.trend_metadata,
             "flagged_for_developer": self.flagged_for_developer,
             "developer_message": self.developer_message,
+            "developer_flag_reason": self.developer_flag_reason,
+            "counters": self.counters,
+            "timeline": self.timeline,
+            "envelopeHash": self.envelope_hash,
             "success": self.success,
             "timestamp": datetime.now().isoformat()
         }, indent=2)
@@ -41,14 +60,23 @@ class PatchEnvelope:
             patch_id=data["patch_id"],
             patch_data=data["patch_data"],
             metadata=data["metadata"],
-            attempts=data["attempts"],
+            attempts=data.get("attempts", []),
             confidenceComponents=data.get("confidenceComponents", {}),
             breakerState=data.get("breakerState", "CLOSED"),
             cascadeDepth=data.get("cascadeDepth", 0),
             resourceUsage=data.get("resourceUsage", {}),
             flagged_for_developer=data.get("flagged_for_developer", False),
             developer_message=data.get("developer_message", ""),
-            success=data.get("success", False)
+            developer_flag_reason=data.get("developer_flag_reason"),
+            success=data.get("success", False),
+            trend_metadata=data.get("trendMetadata", {
+                "errorsDetected": 0,
+                "errorsResolved": 0,
+                "errorTrend": "unknown"
+            }),
+            counters=data.get("counters", {}),
+            timeline=data.get("timeline", []),
+            envelope_hash=data.get("envelopeHash")
         )
 
 class PatchWrapper(ABC):
@@ -97,21 +125,18 @@ class AIPatchEnvelope(PatchWrapper):
             }
         
         # Simulate successful execution
+        execution_details = "Patch executed successfully"
+        # Use helpers for parity
+        helper_mark_success(envelope.__dict__, True)  # mutate underlying dict
+        append_attempt(envelope.__dict__, success=True, note=execution_details, breaker_state="CLOSED", failure_count=0)
+        set_envelope_timestamp(envelope.__dict__)
+        set_envelope_hash(envelope.__dict__)
         result = {
             "success": True,
             "patch_id": envelope.patch_id,
-            "execution_details": "Patch executed successfully",
+            "execution_details": execution_details,
             "envelope": envelope.to_json()
         }
-        
-        # Update envelope
-        envelope.success = True
-        envelope.attempts.append({
-            "timestamp": datetime.now().isoformat(),
-            "result": "success",
-            "details": result["execution_details"]
-        })
-        
         return result
     
     def _is_big_error(self, patch_data: Dict[str, Any]) -> bool:
