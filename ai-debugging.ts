@@ -36,7 +36,23 @@ import {
 import {
   CascadingErrorHandler, SandboxExecution, Environment
 } from "./utils/typescript/cascading_error_handler";
-import { AIPatchEnvelope, PatchEnvelope, MemoryBuffer, ResilientMemoryBuffer } from "./utils/typescript/envelope";
+import {
+  AIPatchEnvelope, PatchEnvelope, MemoryBuffer, ResilientMemoryBuffer,
+  appendAttempt,
+  mergeConfidence,
+  updateTrend,
+  setBreakerState,
+  setCascadeDepth,
+  mergeResourceUsage,
+  applyDeveloperFlag,
+  markSuccess,
+  setEnvelopeTimestamp,
+  setEnvelopeHash,
+  updateCounters,
+  addTimelineEntry,
+  MutableEnvelope
+} from "./utils/typescript/envelope";
+import crypto from "crypto";
 import { Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy } from "./utils/typescript/strategy";
 import { SeniorDeveloperSimulator } from "./utils/typescript/human_debugging";
 import { TrendAwareCircuitBreaker } from "./utils/typescript/trend_aware_circuit_breaker";
@@ -181,6 +197,19 @@ export class AIDebugger {
     const envelope = this.enveloper.wrapPatch(patch);
     envelope.metadata = { ...envelope.metadata, ...metadata };
 
+    // Freeze current policy thresholds into policySnapshot (auditable, optional fields safeguarded)
+    try {
+      (envelope as unknown as MutableEnvelope).policySnapshot = {
+        modelClass: 'mid-tier', // could derive from preset selection
+        syntax_error_budget: this.policy.syntax_error_budget,
+        logic_error_budget: this.policy.logic_error_budget,
+        max_syntax_attempts: this.policy.max_syntax_attempts,
+        max_logic_attempts: this.policy.max_logic_attempts,
+        confidence_floor_syntax: this.policy.syntax_conf_floor,
+        confidence_floor_logic: this.policy.logic_conf_floor
+      };
+    } catch { /* non-fatal */ }
+
     // Evaluate risky edit flags early and attach to metadata
     try {
       const riskFlags = this.riskObserver.evaluate(patch_code, original_code);
@@ -199,21 +228,23 @@ export class AIDebugger {
 
     // Populate schema-required fields
     const conf: ConfidenceScore = this.scorer.calculate_confidence(logits, error_type, historical);
-    envelope.confidenceComponents = {
+    mergeConfidence(envelope as unknown as MutableEnvelope, {
       syntax: conf.syntax_confidence,
       logic: conf.logic_confidence,
       risk: this.is_risky(patch) ? 1 : 0
-    };
+    });
     // Normalize breaker state for schema: OPEN|CLOSED|HALF_OPEN
     const breakerSummaryForHeader = this.breaker.get_state_summary();
-    envelope.breakerState = breakerSummaryForHeader.state;
+    setBreakerState(envelope as unknown as MutableEnvelope, breakerSummaryForHeader.state as any);
     // Provide stubs for missing methods if not present
-    envelope.cascadeDepth = typeof (this.cascade as any).getDepth === "function"
+    const cascadeDepthVal = typeof (this.cascade as any).getDepth === "function"
       ? (this.cascade as any).getDepth()
       : (this.cascade as any).cascadeDepth || 0;
-    envelope.resourceUsage = typeof (this.sandbox as any).getResourceUsage === "function"
+    setCascadeDepth(envelope as unknown as MutableEnvelope, cascadeDepthVal);
+    const ru = typeof (this.sandbox as any).getResourceUsage === "function"
       ? (this.sandbox as any).getResourceUsage()
       : {};
+    mergeResourceUsage(envelope as unknown as MutableEnvelope, ru);
 
     const plan = this.human.debugLikeHuman(message, { error: message, code_snippet: patch_code });
     this.debugger.setStrategy(this.map_strategy(plan?.recommended_strategy ?? "LogAndFixStrategy"));
@@ -241,8 +272,7 @@ export class AIDebugger {
 
     if (this.is_risky(patch) && this.policy.require_human_on_risky) {
       this.record_attempt(envelope, false, "Risk gate → human review");
-      envelope.flaggedForDeveloper = true;
-      envelope.developerMessage = "Risky patch (policy). Human approval required.";
+      applyDeveloperFlag(envelope as unknown as MutableEnvelope, { flagged: true, message: "Risky patch (policy). Human approval required." });
       return this.finalize(envelope, "HUMAN_REVIEW", { cbReason, cascadeReason, floor });
     }
 
@@ -313,16 +343,14 @@ export class AIDebugger {
 
     // Update envelope with rich trend metadata
     const localImproving = (comparison.errorsResolved > 0) || (comparison.qualityDelta > 0);
-    envelope.trendMetadata = {
+    updateTrend(envelope as unknown as MutableEnvelope, {
       errorsDetected: patchedAnalysis.errorCount,
       errorsResolved: comparison.errorsResolved,
-      errorTrend: localImproving
-        ? "improving"
-        : (breakerSummary.is_improving ? "improving" : (breakerSummary.improvement_velocity < 0 ? "worsening" : "plateauing")),
-      codeQualityScore: patchedAnalysis.qualityScore,
+      qualityScore: patchedAnalysis.qualityScore,
       improvementVelocity: breakerSummary.improvement_velocity,
       stagnationRisk: breakerSummary.should_continue_attempts ? 0.2 : 0.8
-    }; this.scorer.record_outcome(conf.overall_confidence, success);
+    });
+    this.scorer.record_outcome(conf.overall_confidence, success);
     if (!success) this.cascade.add_error_to_chain(error_type, message, conf.overall_confidence, 1);
     this.record_attempt(envelope, success, strat.details ?? "");
     (this.memory as any).safeAddOutcome?.(envelope.toJson()) ?? this.memory.addOutcome(envelope.toJson());
@@ -384,20 +412,42 @@ export class AIDebugger {
     }
   }
   private record_attempt(env: PatchEnvelope, ok: boolean, note = "") {
-    // Attach a compact breaker snapshot with required fields for schema
     const b = this.breaker.get_state_summary();
-    env.attempts.push({
-      ts: Date.now() / 1000,
+    appendAttempt(env as unknown as MutableEnvelope, {
       success: ok,
       note,
-      breaker: {
-        state: b.state,
-        failure_count: b.failure_count
-      }
+      breakerState: b.state as any,
+      failureCount: b.failure_count
     });
-    env.success = env.success || ok;
+    markSuccess(env as unknown as MutableEnvelope, ok);
+    // Update counters (determine kind based on last error type heuristic in note)
+    try {
+      const lastAttemptIndex = (env.attempts?.length || 1);
+      const errorsResolved = (env.trendMetadata as any)?.errorsResolved ?? 0;
+      const kind: 'syntax' | 'logic' | 'other' = /syntax/i.test(note) ? 'syntax' : (/logic/i.test(note) ? 'logic' : 'other');
+      updateCounters(env as unknown as MutableEnvelope, kind, errorsResolved);
+      const overallConfidence = (() => {
+        const cc: any = (env as any).confidenceComponents || {};
+        const vals = ['syntax', 'logic', 'risk'].map(k => typeof cc[k] === 'number' ? cc[k] : undefined).filter(v => typeof v === 'number') as number[];
+        if (!vals.length) return undefined; return Math.max(0, Math.min(1, vals.reduce((a, b) => a + b, 0) / vals.length));
+      })();
+      addTimelineEntry(env as unknown as MutableEnvelope, {
+        attempt: lastAttemptIndex,
+        errorsDetected: (env.trendMetadata as any)?.errorsDetected,
+        errorsResolved: (env.trendMetadata as any)?.errorsResolved,
+        overallConfidence,
+        breakerState: b.state,
+        action: note ? note.slice(0, 40) : undefined
+      });
+    } catch { /* non-fatal */ }
   }
   private finalize(env: PatchEnvelope, action: string, extras: Record<string, any>) {
+    // Canonical timestamp & hash just before emitting final envelope shape
+    setEnvelopeTimestamp(env as unknown as MutableEnvelope);
+    try {
+      const sha256Hex = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
+      setEnvelopeHash(env as unknown as MutableEnvelope, sha256Hex);
+    } catch { /* hash best-effort */ }
     // Check for final polish opportunity (95% confidence + zero errors)
     if (action === 'PROMOTE') {
       this.checkAndApplyFinalPolish(env, extras);

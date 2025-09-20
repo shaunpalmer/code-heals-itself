@@ -74,7 +74,10 @@
             "created_at": { "type": "string" },
             "ai_generated": { "type": "boolean" },
             "service": { "type": "string" },
-            "env": { "type": "string" }
+            "env": { "type": "string" },
+            "versionTag": { "type": "string", "description": "e.g. 'v3'", "examples": ["v3","2025.09.1"] },
+            "durationMs": { "type": "number", "minimum": 0, "description": "Total elapsed time for the session so far." },
+            "seed": { "type": "integer", "description": "Optional seed for reproducibility of any stochastic steps." }
           },
           "additionalProperties": true
         },
@@ -135,7 +138,49 @@
         "flagged_for_developer": { "type": "boolean" },
         "developer_message": { "type": "string" },
         "success": { "type": "boolean" },
-        "timestamp": { "type": "string" }
+        "timestamp": { "type": "string" },
+        "schemaVersion": { "type": "string", "description": "Version of the envelope schema used to produce this payload, e.g. '2025.09.1'." },
+        "envelopeHash": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 over a stable canonical string (see notes)." },
+        "timeline": {
+          "type": "array",
+          "description": "Coarse timeline across the whole healing session (per attempt snapshot).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attempt": { "type": "integer", "minimum": 1 },
+              "ts": { "type": "string", "description": "ISO 8601" },
+              "errorsDetected": { "type": "integer", "minimum": 0 },
+              "errorsResolved": { "type": "integer", "minimum": 0 },
+              "overallConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+              "breakerState": { "type": "string", "enum": ["OPEN","CLOSED","HALF_OPEN"] },
+              "action": { "type": "string", "enum": ["RETRY","PAUSE_AND_BACKOFF","PROMOTE","ROLLBACK","HUMAN_REVIEW","STRATEGY_CHANGE"] }
+            },
+            "required": ["attempt","ts","breakerState","action"]
+          }
+        },
+        "counters": {
+          "type": "object",
+          "description": "Roll-up counters for quick glance and telemetry.",
+          "properties": {
+            "totalAttempts": { "type": "integer", "minimum": 0 },
+            "syntaxAttempts": { "type": "integer", "minimum": 0 },
+            "logicAttempts": { "type": "integer", "minimum": 0 },
+            "errorsResolvedTotal": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "policySnapshot": {
+          "type": "object",
+          "description": "The CB/thresholds in effect for this envelope (freeze-dried).",
+          "properties": {
+            "modelClass": { "type": "string", "enum": ["sota","mid-tier","local-small"] },
+            "syntax_error_budget": { "type": "number", "minimum": 0.01, "maximum": 0.50 },
+            "logic_error_budget":  { "type": "number", "minimum": 0.05, "maximum": 0.50 },
+            "max_syntax_attempts": { "type": "integer", "minimum": 1, "maximum": 20 },
+            "max_logic_attempts":  { "type": "integer", "minimum": 3, "maximum": 20 },
+            "confidence_floor_syntax": { "type": "number", "minimum": 0.1, "maximum": 0.99 },
+            "confidence_floor_logic":  { "type": "number", "minimum": 0.1, "maximum": 0.90 }
+          }
+        }
       },
       "additionalProperties": false
     }
@@ -161,4 +206,5 @@
       "confidence_floor_logic": 0.25
     }
   ]
+
 }
