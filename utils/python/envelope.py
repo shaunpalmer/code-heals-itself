@@ -1,57 +1,294 @@
 import json
+import copy
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
+from contextlib import contextmanager
+from typing import Dict, Any, List, Optional, Iterator
 from datetime import datetime
 from .envelope_helpers import (
-    append_attempt, mark_success as helper_mark_success,
-    set_envelope_timestamp, set_envelope_hash
+    append_attempt,
+    mark_success as helper_mark_success,
+    set_envelope_timestamp,
+    set_envelope_hash,
 )
 
-@dataclass
 class PatchEnvelope:
-    patch_id: str
-    patch_data: Dict[str, Any]
-    metadata: Dict[str, Any]
-    attempts: List[Dict[str, Any]]
-    confidenceComponents: Dict[str, float] = field(default_factory=dict)
-    breakerState: str = "CLOSED"
-    cascadeDepth: int = 0
-    resourceUsage: Dict[str, Any] = field(default_factory=dict)
-    flagged_for_developer: bool = False
-    developer_message: str = ""
-    developer_flag_reason: str | None = None
-    success: bool = False
-    # Additional parity fields
-    trend_metadata: Dict[str, Any] = field(default_factory=lambda: {
-        "errorsDetected": 0,
-        "errorsResolved": 0,
-        "errorTrend": "unknown"
-    })
-    counters: Dict[str, int] = field(default_factory=dict)
-    timeline: List[Dict[str, Any]] = field(default_factory=list)
-    envelope_hash: str | None = None
+    """Encapsulated representation of the patch envelope payload."""
+
+    __slots__ = ("_data",)
+
+    def __init__(
+        self,
+        *,
+        patch_id: str,
+        patch_data: Dict[str, Any],
+        metadata: Optional[Dict[str, Any]] = None,
+        attempts: Optional[List[Dict[str, Any]]] = None,
+        confidenceComponents: Optional[Dict[str, float]] = None,
+        breakerState: str = "CLOSED",
+        cascadeDepth: int = 0,
+        resourceUsage: Optional[Dict[str, Any]] = None,
+        flagged_for_developer: bool = False,
+        developer_message: str = "",
+        developer_flag_reason: Optional[str] = None,
+        success: bool = False,
+        trend_metadata: Optional[Dict[str, Any]] = None,
+        counters: Optional[Dict[str, int]] = None,
+        timeline: Optional[List[Dict[str, Any]]] = None,
+        envelope_hash: Optional[str] = None,
+    ) -> None:
+        self._data: Dict[str, Any] = {
+            "patch_id": patch_id,
+            "patch_data": copy.deepcopy(patch_data),
+            "metadata": copy.deepcopy(metadata) if metadata is not None else {},
+            "attempts": copy.deepcopy(attempts) if attempts is not None else [],
+            "confidenceComponents": copy.deepcopy(confidenceComponents)
+            if confidenceComponents is not None
+            else {},
+            "breakerState": breakerState,
+            "cascadeDepth": cascadeDepth,
+            "resourceUsage": copy.deepcopy(resourceUsage) if resourceUsage is not None else {},
+            "flagged_for_developer": bool(flagged_for_developer),
+            "developer_message": developer_message,
+            "developer_flag_reason": developer_flag_reason,
+            "success": bool(success),
+            "trendMetadata": copy.deepcopy(trend_metadata)
+            if trend_metadata is not None
+            else {
+                "errorsDetected": 0,
+                "errorsResolved": 0,
+                "errorTrend": "unknown",
+            },
+            "counters": copy.deepcopy(counters) if counters is not None else {},
+            "timeline": copy.deepcopy(timeline) if timeline is not None else [],
+            "envelopeHash": envelope_hash,
+        }
+
+    # ------------------------------------------------------------------
+    # Properties (read-only views)
+    # ------------------------------------------------------------------
+    @property
+    def patch_id(self) -> str:
+        return self._data["patch_id"]
+
+    @property
+    def patch_data(self) -> Dict[str, Any]:
+        return copy.deepcopy(self._data["patch_data"])
+
+    @property
+    def attempts(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self._data["attempts"])
+
+    @property
+    def breaker_state(self) -> str:
+        return self._data["breakerState"]
+
+    @property
+    def breakerState(self) -> str:  # Backwards compatibility alias
+        return self.breaker_state
+
+    @breakerState.setter
+    def breakerState(self, value: str) -> None:
+        self.set_breaker_state(value)
+
+    @property
+    def cascade_depth(self) -> int:
+        return self._data["cascadeDepth"]
+
+    @property
+    def cascadeDepth(self) -> int:  # Backwards compatibility alias
+        return self.cascade_depth
+
+    @cascadeDepth.setter
+    def cascadeDepth(self, value: int) -> None:
+        self.set_cascade_depth(value)
+
+    @property
+    def is_successful(self) -> bool:
+        return bool(self._data["success"])
+
+    @property
+    def success(self) -> bool:  # Backwards compatibility alias
+        return self.is_successful
+
+    @success.setter
+    def success(self, value: bool) -> None:
+        self.mark_success(value)
+
+    @property
+    def is_flagged(self) -> bool:
+        return bool(self._data["flagged_for_developer"])
+
+    @property
+    def flagged_for_developer(self) -> bool:  # Backwards compatibility alias
+        return self.is_flagged
+
+    @flagged_for_developer.setter
+    def flagged_for_developer(self, value: bool) -> None:
+        if value:
+            self.flag_for_developer()
+        else:
+            self.clear_developer_flag()
+
+    @property
+    def developer_message(self) -> str:
+        return self._data["developer_message"]
+
+    @developer_message.setter
+    def developer_message(self, value: str) -> None:
+        self.set_developer_message(value)
+
+    @property
+    def developer_flag_reason(self) -> Optional[str]:
+        return self._data["developer_flag_reason"]
+
+    @developer_flag_reason.setter
+    def developer_flag_reason(self, value: Optional[str]) -> None:
+        self.set_developer_reason(value)
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        return copy.deepcopy(self._data["metadata"])
+
+    @metadata.setter
+    def metadata(self, value: Dict[str, Any]) -> None:
+        self._data["metadata"] = copy.deepcopy(value or {})
+
+    @property
+    def resource_usage(self) -> Dict[str, Any]:
+        return copy.deepcopy(self._data["resourceUsage"])
+
+    @property
+    def resourceUsage(self) -> Dict[str, Any]:  # Backwards compatibility alias
+        return self.resource_usage
+
+    @resourceUsage.setter
+    def resourceUsage(self, value: Dict[str, Any]) -> None:
+        self._data["resourceUsage"] = copy.deepcopy(value or {})
+
+    @property
+    def trend_metadata(self) -> Dict[str, Any]:
+        return copy.deepcopy(self._data["trendMetadata"])
+
+    @property
+    def trendMetadata(self) -> Dict[str, Any]:  # Backwards compatibility alias
+        return self.trend_metadata
+
+    @trendMetadata.setter
+    def trendMetadata(self, value: Dict[str, Any]) -> None:
+        self._data["trendMetadata"] = copy.deepcopy(value or {})
+
+    @property
+    def confidence_components(self) -> Dict[str, float]:
+        return copy.deepcopy(self._data["confidenceComponents"])
+
+    @property
+    def confidenceComponents(self) -> Dict[str, float]:  # Backwards compatibility alias
+        return self.confidence_components
+
+    @confidenceComponents.setter
+    def confidenceComponents(self, value: Dict[str, float]) -> None:
+        self.update_confidence(value or {})
+
+    @property
+    def counters(self) -> Dict[str, int]:
+        return copy.deepcopy(self._data["counters"])
+
+    @counters.setter
+    def counters(self, value: Dict[str, int]) -> None:
+        self.update_counters(value or {})
+
+    @property
+    def timeline(self) -> List[Dict[str, Any]]:
+        return copy.deepcopy(self._data["timeline"])
+
+    @timeline.setter
+    def timeline(self, value: List[Dict[str, Any]]) -> None:
+        self.update_timeline(value or [])
+
+    @property
+    def envelope_hash(self) -> Optional[str]:
+        return self._data["envelopeHash"]
+
+    @property
+    def envelopeHash(self) -> Optional[str]:  # Backwards compatibility alias
+        return self.envelope_hash
+
+    @envelopeHash.setter
+    def envelopeHash(self, value: Optional[str]) -> None:
+        self.set_envelope_hash(value)
+
+    # ------------------------------------------------------------------
+    # Controlled mutation helpers
+    # ------------------------------------------------------------------
+    def merge_metadata(self, extra: Optional[Dict[str, Any]]) -> None:
+        if not extra:
+            return
+        self._data["metadata"].update(copy.deepcopy(extra))
+
+    def set_breaker_state(self, state: str) -> None:
+        self._data["breakerState"] = state
+
+    def set_cascade_depth(self, depth: int) -> None:
+        self._data["cascadeDepth"] = max(0, int(depth))
+
+    def mark_success(self, success: bool = True) -> None:
+        self._data["success"] = bool(success)
+
+    def flag_for_developer(
+        self,
+        *,
+        message: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        self._data["flagged_for_developer"] = True
+        if message is not None:
+            self._data["developer_message"] = message
+        if reason is not None:
+            self._data["developer_flag_reason"] = reason
+
+    def clear_developer_flag(self) -> None:
+        self._data["flagged_for_developer"] = False
+        self._data["developer_message"] = ""
+        self._data["developer_flag_reason"] = None
+
+    def set_developer_message(self, message: str) -> None:
+        self._data["developer_message"] = message
+
+    def set_developer_reason(self, reason: Optional[str]) -> None:
+        self._data["developer_flag_reason"] = reason
+
+    def add_attempt(self, attempt: Dict[str, Any]) -> None:
+        self._data["attempts"].append(copy.deepcopy(attempt))
+
+    def update_confidence(self, components: Dict[str, float]) -> None:
+        self._data["confidenceComponents"] = copy.deepcopy(components)
+
+    def update_resource_usage(self, usage: Dict[str, Any]) -> None:
+        self._data["resourceUsage"].update(copy.deepcopy(usage))
+
+    def update_trend(self, trend: Dict[str, Any]) -> None:
+        self._data["trendMetadata"].update(copy.deepcopy(trend))
+
+    def update_counters(self, counters: Dict[str, int]) -> None:
+        self._data["counters"].update(copy.deepcopy(counters))
+
+    def update_timeline(self, timeline: List[Dict[str, Any]]) -> None:
+        self._data["timeline"] = copy.deepcopy(timeline)
+
+    def set_envelope_hash(self, envelope_hash: Optional[str]) -> None:
+        self._data["envelopeHash"] = envelope_hash
+
+    # ------------------------------------------------------------------
+    # Dict / JSON views
+    # ------------------------------------------------------------------
+    def to_dict(self, *, include_timestamp: bool = False) -> Dict[str, Any]:
+        snapshot = copy.deepcopy(self._data)
+        if include_timestamp:
+            snapshot["timestamp"] = datetime.now().isoformat()
+        return snapshot
 
     def to_json(self) -> str:
-        return json.dumps({
-            "patch_id": self.patch_id,
-            "patch_data": self.patch_data,
-            "metadata": self.metadata,
-            "attempts": self.attempts,
-            "confidenceComponents": self.confidenceComponents or {},
-            "breakerState": self.breakerState,
-            "cascadeDepth": self.cascadeDepth,
-            "resourceUsage": self.resourceUsage or {},
-            "trendMetadata": self.trend_metadata,
-            "flagged_for_developer": self.flagged_for_developer,
-            "developer_message": self.developer_message,
-            "developer_flag_reason": self.developer_flag_reason,
-            "counters": self.counters,
-            "timeline": self.timeline,
-            "envelopeHash": self.envelope_hash,
-            "success": self.success,
-            "timestamp": datetime.now().isoformat()
-        }, indent=2)
+        return json.dumps(self.to_dict(include_timestamp=True), indent=2)
 
     @classmethod
     def from_json(cls, json_str: str) -> 'PatchEnvelope':
@@ -59,7 +296,7 @@ class PatchEnvelope:
         return cls(
             patch_id=data["patch_id"],
             patch_data=data["patch_data"],
-            metadata=data["metadata"],
+            metadata=data.get("metadata", {}),
             attempts=data.get("attempts", []),
             confidenceComponents=data.get("confidenceComponents", {}),
             breakerState=data.get("breakerState", "CLOSED"),
@@ -69,15 +306,43 @@ class PatchEnvelope:
             developer_message=data.get("developer_message", ""),
             developer_flag_reason=data.get("developer_flag_reason"),
             success=data.get("success", False),
-            trend_metadata=data.get("trendMetadata", {
-                "errorsDetected": 0,
-                "errorsResolved": 0,
-                "errorTrend": "unknown"
-            }),
-            counters=data.get("counters", {}),
-            timeline=data.get("timeline", []),
-            envelope_hash=data.get("envelopeHash")
+            trend_metadata=data.get("trendMetadata"),
+            counters=data.get("counters"),
+            timeline=data.get("timeline"),
+            envelope_hash=data.get("envelopeHash"),
         )
+
+    # ------------------------------------------------------------------
+    # Controlled dictionary mutation for helper compatibility
+    # ------------------------------------------------------------------
+    @contextmanager
+    def mutable_payload(self) -> Iterator[Dict[str, Any]]:
+        """Yield a mutable copy of the payload and absorb changes afterwards."""
+
+        snapshot = self.to_dict()
+        try:
+            yield snapshot
+        finally:
+            self._absorb(snapshot)
+
+    def _absorb(self, mutated: Dict[str, Any]) -> None:
+        base_id = self._data["patch_id"]
+        for key, value in mutated.items():
+            if key == "patch_id" and value != base_id:
+                raise ValueError("patch_id is immutable once set")
+            if key == "patch_data" and value != self._data["patch_data"]:
+                raise ValueError("patch_data mutation is not supported via mutable_payload")
+            self._data[key] = copy.deepcopy(value)
+
+    # Convenience access used by helper utilities that expect dict-like input
+    def apply_helper(self, helper_callable, *args, **kwargs) -> None:
+        with self.mutable_payload() as payload:
+            helper_callable(payload, *args, **kwargs)
+
+    def apply_multiple_helpers(self, *operations) -> None:
+        with self.mutable_payload() as payload:
+            for fn, args, kwargs in operations:
+                fn(payload, *args, **kwargs)
 
 class PatchWrapper(ABC):
     @abstractmethod
@@ -114,9 +379,11 @@ class AIPatchEnvelope(PatchWrapper):
         # For now, it's a placeholder that simulates execution
         
         # Check if this is a "big error" that should be flagged
-        if self._is_big_error(envelope.patch_data):
-            envelope.flagged_for_developer = True
-            envelope.developer_message = self._generate_developer_message(envelope.patch_data)
+        patch_snapshot = envelope.patch_data
+        if self._is_big_error(patch_snapshot):
+            envelope.flag_for_developer(
+                message=self._generate_developer_message(patch_snapshot)
+            )
             return {
                 "success": False,
                 "flagged": True,
@@ -126,11 +393,21 @@ class AIPatchEnvelope(PatchWrapper):
         
         # Simulate successful execution
         execution_details = "Patch executed successfully"
-        # Use helpers for parity
-        helper_mark_success(envelope.__dict__, True)  # mutate underlying dict
-        append_attempt(envelope.__dict__, success=True, note=execution_details, breaker_state="CLOSED", failure_count=0)
-        set_envelope_timestamp(envelope.__dict__)
-        set_envelope_hash(envelope.__dict__)
+        envelope.apply_multiple_helpers(
+            (helper_mark_success, (True,), {}),
+            (
+                append_attempt,
+                (),
+                {
+                    "success": True,
+                    "note": execution_details,
+                    "breaker_state": "CLOSED",
+                    "failure_count": 0,
+                },
+            ),
+            (set_envelope_timestamp, (), {}),
+            (set_envelope_hash, (), {}),
+        )
         result = {
             "success": True,
             "patch_id": envelope.patch_id,

@@ -94,8 +94,8 @@ class AIDebugger:
         }
         envelope = self.enveloper.wrap_patch(patch)
         if metadata:
-            envelope.metadata.update(metadata)
-
+            envelope.merge_metadata(metadata)
+              # if you merge the entire envelope you won't have a Error delta
         # --- SCHEMA VALIDATION ---
         schema_path = os.path.join(os.path.dirname(__file__), 'schemas/patch-envelope.schema.json')
         try:
@@ -139,8 +139,9 @@ class AIDebugger:
         # 5) Risk gating (schema/risky ops) – conservative per PRD
         if self._is_risky_patch(patch) and self.policy.require_human_on_risky:
             self._record_attempt(envelope, success=False, note="Risk gate → human review")
-            envelope.flagged_for_developer = True
-            envelope.developer_message = "Risky patch (policy). Human approval required."
+            envelope.flag_for_developer(
+                message="Risky patch (policy). Human approval required."
+            )
             return self._finalize(envelope, "HUMAN_REVIEW", decision)
 
         # 6) Decide to proceed
@@ -192,19 +193,32 @@ class AIDebugger:
         }.get(name, LogAndFixStrategy())
 
     def _record_attempt(self, env: PatchEnvelope, success: bool, note: str = ""):
-        # Work on underlying dict for helper compatibility
-        edict = env.__dict__
         bsum = self.breaker.get_state_summary()
-        append_attempt(edict, success=success, note=note, breaker_state=bsum.get("state", "CLOSED"), failure_count=bsum.get("failure_count"))
-        mark_success(edict, success)
-        # Determine kind heuristically from note / breaker summary
-        kind = 'syntax' if 'syntax' in note.lower() else ('logic' if 'logic' in note.lower() else 'other')
-        update_counters(edict, kind=kind, errors_resolved=0)
-        attempt_no = edict.get('counters', {}).get('totalAttempts', len(edict.get('attempts', [])))
-        add_timeline_entry(edict, attempt=attempt_no, breaker_state=bsum.get('state'), action='promote' if success else 'continue')
-        # Refresh timestamp & hash late (not stable across attempts; hash excludes attempts/timestamp internally)
-        set_envelope_timestamp(edict)
-        set_envelope_hash(edict)
+        kind = "syntax" if "syntax" in note.lower() else ("logic" if "logic" in note.lower() else "other")
+
+        with env.mutable_payload() as payload:
+            append_attempt(
+                payload,
+                success=success,
+                note=note,
+                breaker_state=bsum.get("state", "CLOSED"),
+                failure_count=bsum.get("failure_count"),
+            )
+            mark_success(payload, success)
+            update_counters(payload, kind=kind, errors_resolved=0)
+            attempt_no = payload.get("counters", {}).get(
+                "totalAttempts", len(payload.get("attempts", []))
+            )
+            add_timeline_entry(
+                payload,
+                attempt=attempt_no,
+                breaker_state=bsum.get("state"),
+                action="promote" if success else "continue",
+            )
+            # Refresh timestamp & hash late (not stable across attempts; hash excludes
+            # attempts/timestamp internally)
+            set_envelope_timestamp(payload)
+            set_envelope_hash(payload)
 
     def _finalize(self, env: PatchEnvelope, action: str, extras: Dict[str, Any]) -> Dict[str, Any]:
         payload = {
