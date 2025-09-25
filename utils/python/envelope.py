@@ -1,5 +1,6 @@
 import json
 import copy
+import hashlib
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from typing import Dict, Any, List, Optional, Iterator
@@ -358,7 +359,9 @@ class AIPatchEnvelope(PatchWrapper):
         self.envelopes = {}
     
     def wrap_patch(self, patch: Dict[str, Any]) -> PatchEnvelope:
-        patch_id = f"patch_{int(datetime.now().timestamp())}_{hash(str(patch))}"
+        canonical = json.dumps(patch, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        digest = hashlib.sha256(canonical).hexdigest()[:12]
+        patch_id = f"patch_{int(datetime.now().timestamp())}_{digest}"
         
         envelope = PatchEnvelope(
             patch_id=patch_id,

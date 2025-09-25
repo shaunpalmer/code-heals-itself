@@ -7,6 +7,7 @@ import math
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
+from datetime import datetime, timezone
 
 class ErrorType(Enum):
     SYNTAX = "syntax"
@@ -104,8 +105,13 @@ class UnifiedConfidenceScorer:
 
     def _softmax(self, logits: List[float]) -> List[float]:
         """Standard softmax function"""
-        exp_logits = [math.exp(logit) for logit in logits]
+        if not logits:
+            return []
+        max_logit = max(logits)
+        exp_logits = [math.exp(logit - max_logit) for logit in logits]
         sum_exp = sum(exp_logits)
+        if sum_exp == 0:
+            return [0.0 for _ in exp_logits]
         return [exp_logit / sum_exp for exp_logit in exp_logits]
 
     def _calculate_syntax_confidence(self, probabilities: List[float], error_type: ErrorType) -> float:
@@ -292,7 +298,7 @@ class DualCircuitBreaker:
         """Record the outcome of an attempt"""
 
         self.total_attempts += 1
-        self.last_attempt_time = "current_timestamp"  # Would be actual timestamp
+        self.last_attempt_time = datetime.now(timezone.utc).isoformat()
 
         if error_type == ErrorType.SYNTAX:
             self.syntax_attempts += 1

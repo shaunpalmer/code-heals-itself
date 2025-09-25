@@ -5,7 +5,7 @@ Handles error type transitions and provides safe testing environment
 
 from typing import Dict, List, Optional, Any, Tuple
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from datetime import datetime
 import json
 
@@ -59,7 +59,9 @@ class SandboxExecution:
             Execution results with safety metrics
         """
 
+        self.test_results = []
         self.start_time = datetime.now()
+        self.end_time = None
 
         try:
             # Apply resource limits
@@ -76,6 +78,8 @@ class SandboxExecution:
 
             # Run comprehensive tests
             self._run_test_suite(patch_data, result)
+
+            result["test_results"] = [asdict(tr) for tr in self.test_results]
 
             return result
 
@@ -100,7 +104,7 @@ class SandboxExecution:
             "memory_used_mb": 45,
             "cpu_used_percent": 15,
             "side_effects": [],
-            "test_results": self.test_results
+            "test_results": []
         }
 
     def _execute_with_partial_isolation(self, patch_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,7 +117,7 @@ class SandboxExecution:
             "memory_used_mb": 38,
             "cpu_used_percent": 12,
             "side_effects": ["logged_warning"],
-            "test_results": self.test_results
+            "test_results": []
         }
 
     def _execute_without_isolation(self, patch_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -126,7 +130,7 @@ class SandboxExecution:
             "memory_used_mb": 25,
             "cpu_used_percent": 8,
             "side_effects": ["potential_system_impact"],
-            "test_results": self.test_results
+            "test_results": []
         }
 
     def _run_test_suite(self, patch_data: Dict[str, Any], execution_result: Dict[str, Any]) -> None:

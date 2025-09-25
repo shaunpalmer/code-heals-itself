@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Optional, Callable, List
 import time
 import json
+from functools import lru_cache
 
 # --- Local modules (your utilities) ---
 from confidence_scoring import (
@@ -20,6 +21,16 @@ from strategy import Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAudi
 from human_debugging import SeniorDeveloperSimulator
 import jsonschema
 import os
+
+# ---------- Helpers ----------
+@lru_cache(maxsize=1)
+def _load_patch_envelope_schema() -> Dict[str, Any]:
+    schema_path = os.path.join(os.path.dirname(__file__), 'schemas/patch-envelope.schema.json')
+    try:
+        with open(schema_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception as e:
+        raise RuntimeError(f"Could not load PatchEnvelope schema: {e}") from e
 
 # ---------- Configuration / policy ----------
 @dataclass
@@ -97,16 +108,9 @@ class AIDebugger:
             envelope.merge_metadata(metadata)
               # if you merge the entire envelope you won't have a Error delta
         # --- SCHEMA VALIDATION ---
-        schema_path = os.path.join(os.path.dirname(__file__), 'schemas/patch-envelope.schema.json')
-        try:
-            with open(schema_path, 'r', encoding='utf-8') as f:
-                schema = json.load(f)
-        except Exception as e:
-            raise RuntimeError(f"Could not load PatchEnvelope schema: {e}")
-
         envelope_json = json.loads(envelope.to_json())
         try:
-            jsonschema.validate(instance=envelope_json, schema=schema)
+            jsonschema.validate(instance=envelope_json, schema=_load_patch_envelope_schema())
         except jsonschema.ValidationError as ve:
             raise RuntimeError(f"PatchEnvelope validation failed: {ve.message}")
 

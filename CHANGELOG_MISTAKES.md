@@ -1,5 +1,19 @@
 # CHANGELOG - Learning from Mistakes
 
+## Date: September 25, 2025
+
+### IMPROVEMENT: Stabilized Confidence Softmax on Python Side
+- **What changed**: Replaced the naive `math.exp(logit)` loop with a numerically stable softmax (subtract max logit, guard empty inputs) inside `utils/python/confidence_scoring.py` and started recording real UTC timestamps in the dual circuit breaker.
+- **Why it matters**: Prevents overflow when logits spike during healing attempts, keeps confidence gradients meaningful, and preserves audit timelines.
+- **Next step (TypeScript)**: Mirror the stable softmax + timestamp update in `utils/typescript/confidence_scoring.ts` the next time we touch the TS branch.
+- **How to read it in our engine**: for each confidence component `i`, we now compute
+  $$\operatorname{softmax}_i = \frac{\exp(\text{logits}_i - \max_j \text{logits}_j)}{\sum_j \exp(\text{logits}_j - \max_k \text{logits}_k)}$$
+  so the logits coming out of the error-delta gradient get smoothed into normalized weights without numerical blow-ups.
+
+### ACTION ITEMS
+1. ✅ Python softmax now stable and breaker timestamps real.
+2. ☐ Port the same stability guard into the TypeScript scorer (note for upcoming TypeScript branch work).
+
 ## Date: September 16, 2025
 
 ### MISTAKE: Over-Engineering with Extra Files
