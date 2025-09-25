@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Code Heals Itself • Operator Dashboard</title>
+    <link rel="stylesheet" href="assets/style.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <h1>Operator Dashboard</h1>
+      <p class="tagline">Quick controls, live signals, and envelope visibility</p>
+    </header>
+
+    <div class="layout">
+      <aside class="sidebar" aria-label="primary navigation">
+        <h2 class="sidebar-title">Console</h2>
+        <nav>
+          <ul class="sidebar-nav" id="nav">
+            <li><button class="nav-link is-active" data-view-target="overview">Overview</button></li>
+            <li><button class="nav-link" data-view-target="envelopes">Envelopes</button></li>
+            <li><button class="nav-link" data-view-target="extensions">Extensions</button></li>
+            <li><button class="nav-link" data-view-target="heartbeat">Heartbeat</button></li>
+          </ul>
+        </nav>
+      </aside>
+
+      <main class="content" id="views">
+        <section class="view is-active" data-view="overview" aria-label="System overview">
+          <section class="grid" aria-label="overview widgets">
+            <article class="widget">
+              <h2>Healing Success</h2>
+              <div class="metric" data-metric="healing-success">--%</div>
+              <p class="hint">Rolling 24h acceptance rate</p>
+            </article>
+            <article class="widget">
+              <h2>Breaker Status</h2>
+              <div class="metric" data-metric="breaker-status">unknown</div>
+              <p class="hint">Trend-aware + envelope breaker</p>
+            </article>
+            <article class="widget">
+              <h2>Pending Reviews</h2>
+              <div class="metric" data-metric="pending-reviews">--</div>
+              <p class="hint">Awaiting human confirmation</p>
+            </article>
+          </section>
+
+          <section class="panel" aria-label="control panel">
+            <details open>
+              <summary>Control Center</summary>
+              <form id="control-form" class="control-form">
+                <label for="base-url">API base URL</label>
+                <input
+                  id="base-url"
+                  name="base-url"
+                  type="url"
+                  placeholder="https://localhost:4000/api"
+                  autocomplete="off"
+                />
+
+                <div class="button-row">
+                  <button type="button" data-action="refresh-metrics">Refresh Metrics</button>
+                  <button type="button" data-action="pull-envelope">Fetch Latest Envelope</button>
+                  <button type="button" data-action="trigger-heal">Trigger Heal Cycle</button>
+                </div>
+              </form>
+              <p class="hint">
+                Commands run against the base URL you provide above. Adjust
+                <code>assets/app.js</code> to wire in custom endpoints or authentication.
+              </p>
+              <output id="control-log" aria-live="polite"></output>
+            </details>
+          </section>
+        </section>
+
+        <section class="view" data-view="envelopes" aria-label="Envelope history">
+          <section class="panel">
+            <details open>
+              <summary>Envelope Timeline</summary>
+              <div id="timeline" class="timeline"></div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>Debug Payload</summary>
+              <pre id="payload-viewer" class="payload-viewer" tabindex="0">No envelope loaded yet.</pre>
+            </details>
+          </section>
+        </section>
+
+        <section class="view" data-view="extensions" aria-label="Extension toggles">
+          <section class="panel">
+            <details open>
+              <summary>Runtime Extensions</summary>
+              <ul id="extensions-list" class="toggle-list" aria-live="polite"></ul>
+              <p class="hint">
+                Use the toggles to flip observers and post-processing extensions. Requests
+                post to <code>/extensions/&lt;id&gt;/enable|disable</code> by default.
+              </p>
+            </details>
+          </section>
+        </section>
+
+        <section class="view" data-view="heartbeat" aria-label="Heartbeat controls">
+          <section class="panel">
+            <details open>
+              <summary>Heartbeat Monitor</summary>
+              <div class="heartbeat-status">
+                <div>
+                  <h2 aria-live="polite" data-heartbeat-status>unknown</h2>
+                  <p class="hint">Last beat: <span data-heartbeat-timestamp>--</span></p>
+                </div>
+                <button type="button" id="heartbeat-ping" class="primary">Send Heartbeat</button>
+              </div>
+              <p class="hint">
+                Heartbeat calls <code>/status/heartbeat</code> by default. Customize the
+                endpoint in <code>assets/app.js</code> to use your own scheduler.
+              </p>
+              <ul id="heartbeat-log" class="heartbeat-log" aria-live="polite"></ul>
+            </details>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="timeline-row">
+      <article class="timeline-row">
+        <header>
+          <strong data-field="summary">Envelope</strong>
+          <span data-field="status">status</span>
+        </header>
+        <dl>
+          <div>
+            <dt>Updated</dt>
+            <dd data-field="timestamp">--</dd>
+          </div>
+          <div>
+            <dt>Confidence</dt>
+            <dd data-field="confidence">--</dd>
+          </div>
+          <div>
+            <dt>Breaker</dt>
+            <dd data-field="breaker">--</dd>
+          </div>
+        </dl>
+      </article>
+    </template>
+
+    <template id="extension-item">
+      <li class="toggle-item">
+        <div class="toggle-meta">
+          <h3 data-field="name">Extension</h3>
+          <p data-field="description" class="hint">Description</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" data-field="input" />
+          <span class="slider" aria-hidden="true"></span>
+        </label>
+      </li>
+    </template>
+
+    <script src="assets/app.js" type="module"></script>
+  </body>
+</html>
