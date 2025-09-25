@@ -1,71 +1,252 @@
-class PatchEnvelope {
-  public success: boolean;
-  public flaggedForDeveloper: boolean;
-  public developerMessage: string;
-  public confidenceComponents: Record<string, number>;
-  public breakerState: string;
-  public cascadeDepth: number;
-  public resourceUsage: Record<string, any>;
-  public trendMetadata: {
-    errorsDetected: number;
-    errorsResolved: number;
-    errorTrend: "improving" | "plateauing" | "worsening" | "unknown";
-    codeQualityScore?: number;
-    improvementVelocity?: number;
-    stagnationRisk?: number;
+interface PatchEnvelopeState {
+  patchId: string;
+  patchData: Record<string, any>;
+  metadata: Record<string, any>;
+  attempts: Record<string, any>[];
+  confidenceComponents: Record<string, number>;
+  breakerState: string;
+  cascadeDepth: number;
+  resourceUsage: Record<string, any>;
+  trendMetadata: TrendMetadata;
+  success: boolean;
+  flaggedForDeveloper: boolean;
+  flagged_for_developer: boolean;
+  developerMessage: string;
+  developer_message: string;
+  counters?: {
+    totalAttempts?: number;
+    syntaxAttempts?: number;
+    logicAttempts?: number;
+    errorsResolvedTotal?: number;
   };
+  timeline?: Array<{
+    attempt: number;
+    ts: string;
+    errorsDetected?: number;
+    errorsResolved?: number;
+    overallConfidence?: number;
+    breakerState?: BreakerState | string;
+    action?: string;
+  }>;
+  policySnapshot?: Record<string, any>;
+  developer_flag_reason?: string;
+  envelopeHash?: string;
+  timestamp?: string;
+  [key: string]: any;
+}
+
+type PatchEnvelopeJson = {
+  patch_id: string;
+  patch_data: Record<string, any>;
+  metadata: Record<string, any>;
+  attempts: Record<string, any>[];
+  confidenceComponents: Record<string, number>;
+  breakerState: string;
+  cascadeDepth: number;
+  resourceUsage: Record<string, any>;
+  trendMetadata: TrendMetadata;
+  success: boolean;
+  flagged_for_developer: boolean;
+  developer_message: string;
+  timestamp: string;
+  envelopeHash?: string;
+  [key: string]: any;
+};
+
+class PatchEnvelope {
+  protected readonly state: PatchEnvelopeState;
 
   constructor(
-    public patchId: string,
-    public patchData: Record<string, any>,
-    public metadata: Record<string, any> = {},
-    public attempts: Record<string, any>[] = [],
+    patchId: string,
+    patchData: Record<string, any>,
+    metadata: Record<string, any> = {},
+    attempts: Record<string, any>[] = [],
     confidenceComponents: Record<string, number> = {},
     breakerState: string = "CLOSED",
     cascadeDepth: number = 0,
     resourceUsage: Record<string, any> = {}
   ) {
-    this.metadata = {
-      created_at: new Date().toISOString(),
-      language: "typescript",
-      ai_generated: true,
-      ...metadata
+    this.state = {
+      patchId,
+      patchData,
+      metadata: {
+        created_at: new Date().toISOString(),
+        language: "typescript",
+        ai_generated: true,
+        ...metadata
+      },
+      attempts: Array.isArray(attempts) ? [...attempts] : [],
+      confidenceComponents: { ...confidenceComponents },
+      breakerState,
+      cascadeDepth,
+      resourceUsage: { ...resourceUsage },
+      trendMetadata: {
+        errorsDetected: 0,
+        errorsResolved: 0,
+        errorTrend: "unknown"
+      },
+      success: false,
+      flaggedForDeveloper: false,
+      flagged_for_developer: false,
+      developerMessage: "",
+      developer_message: ""
     };
-    this.attempts = attempts;
-    this.confidenceComponents = confidenceComponents;
-    this.breakerState = breakerState;
-    this.cascadeDepth = cascadeDepth;
-    this.resourceUsage = resourceUsage;
-    this.success = false;
-    this.flaggedForDeveloper = false;
-    this.developerMessage = "";
-    this.trendMetadata = {
-      errorsDetected: 0,
-      errorsResolved: 0,
-      errorTrend: "unknown"
+    this.normalizeAliases();
+  }
+
+  get patchId(): string { return this.state.patchId; }
+
+  get patchData(): Record<string, any> { return this.state.patchData; }
+  set patchData(value: Record<string, any>) { this.state.patchData = value; }
+
+  get metadata(): Record<string, any> { return this.state.metadata; }
+  set metadata(value: Record<string, any>) {
+    this.state.metadata = value ?? {};
+  }
+
+  get attempts(): Record<string, any>[] { return this.state.attempts; }
+  set attempts(value: Record<string, any>[]) {
+    this.state.attempts = Array.isArray(value) ? value : [];
+  }
+
+  get confidenceComponents(): Record<string, number> { return this.state.confidenceComponents; }
+  set confidenceComponents(value: Record<string, number>) {
+    this.state.confidenceComponents = value ?? {};
+  }
+
+  get breakerState(): string { return this.state.breakerState; }
+  set breakerState(value: string) {
+    this.state.breakerState = value ?? "CLOSED";
+  }
+
+  get cascadeDepth(): number { return this.state.cascadeDepth; }
+  set cascadeDepth(value: number) {
+    const safe = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+    this.state.cascadeDepth = safe;
+  }
+
+  get resourceUsage(): Record<string, any> { return this.state.resourceUsage; }
+  set resourceUsage(value: Record<string, any>) {
+    this.state.resourceUsage = value ?? {};
+  }
+
+  get trendMetadata(): TrendMetadata { return this.state.trendMetadata; }
+  set trendMetadata(value: TrendMetadata) {
+    this.state.trendMetadata = value ?? this.state.trendMetadata;
+  }
+
+  get success(): boolean { return this.state.success; }
+  set success(value: boolean) {
+    this.state.success = value === true;
+  }
+
+  get flaggedForDeveloper(): boolean { return this.state.flaggedForDeveloper; }
+  set flaggedForDeveloper(value: boolean) {
+    const flagged = value === true;
+    this.state.flaggedForDeveloper = flagged;
+    this.state.flagged_for_developer = flagged;
+  }
+
+  get flagged_for_developer(): boolean { return this.state.flagged_for_developer; }
+  set flagged_for_developer(value: boolean) {
+    this.flaggedForDeveloper = value;
+  }
+
+  get developerMessage(): string { return this.state.developerMessage; }
+  set developerMessage(value: string) {
+    const msg = value ?? "";
+    this.state.developerMessage = msg;
+    this.state.developer_message = msg;
+  }
+
+  get developer_message(): string { return this.state.developer_message; }
+  set developer_message(value: string) {
+    this.developerMessage = value;
+  }
+
+  get developer_flag_reason(): string | undefined { return this.state.developer_flag_reason; }
+  set developer_flag_reason(value: string | undefined) {
+    this.state.developer_flag_reason = value;
+  }
+
+  get counters(): PatchEnvelopeState['counters'] { return this.state.counters; }
+  set counters(value: PatchEnvelopeState['counters']) {
+    this.state.counters = value;
+  }
+
+  get timeline(): PatchEnvelopeState['timeline'] { return this.state.timeline; }
+  set timeline(value: PatchEnvelopeState['timeline']) {
+    this.state.timeline = value ?? undefined;
+  }
+
+  get policySnapshot(): Record<string, any> | undefined { return this.state.policySnapshot; }
+  set policySnapshot(value: Record<string, any> | undefined) {
+    this.state.policySnapshot = value;
+  }
+
+  get timestamp(): string | undefined { return this.state.timestamp; }
+  set timestamp(value: string | undefined) {
+    this.state.timestamp = value;
+  }
+
+  get envelopeHash(): string | undefined { return this.state.envelopeHash; }
+  set envelopeHash(value: string | undefined) {
+    this.state.envelopeHash = value;
+  }
+
+  protected getMutableState(): MutableEnvelope {
+    return this.state as unknown as MutableEnvelope;
+  }
+
+  public withMutable<T>(mutator: (draft: MutableEnvelope) => T): T {
+    const result = mutator(this.getMutableState());
+    this.normalizeAliases();
+    return result;
+  }
+
+  private normalizeAliases(): void {
+    const flagged = this.state.flaggedForDeveloper || this.state.flagged_for_developer || false;
+    this.state.flaggedForDeveloper = flagged;
+    this.state.flagged_for_developer = flagged;
+    const msg = this.state.developerMessage || this.state.developer_message || "";
+    this.state.developerMessage = msg;
+    this.state.developer_message = msg;
+  }
+
+  toObject(): PatchEnvelopeJson {
+    const timestamp = this.state.timestamp ?? new Date().toISOString();
+    return {
+      patch_id: this.state.patchId,
+      patch_data: this.state.patchData,
+      metadata: this.state.metadata,
+      attempts: this.state.attempts,
+      confidenceComponents: this.state.confidenceComponents,
+      breakerState: this.state.breakerState,
+      cascadeDepth: this.state.cascadeDepth,
+      resourceUsage: this.state.resourceUsage,
+      trendMetadata: this.state.trendMetadata,
+      success: this.state.success,
+      flagged_for_developer: this.state.flagged_for_developer,
+      developer_message: this.state.developer_message,
+      timestamp,
+      envelopeHash: this.state.envelopeHash,
+      counters: this.state.counters,
+      timeline: this.state.timeline,
+      policySnapshot: this.state.policySnapshot,
+      developer_flag_reason: this.state.developer_flag_reason
     };
   }
 
-  toJson(): string {
-    return JSON.stringify({
-      patch_id: this.patchId,
-      patch_data: this.patchData,
-      metadata: this.metadata,
-      attempts: this.attempts,
-      confidenceComponents: this.confidenceComponents,
-      breakerState: this.breakerState,
-      cascadeDepth: this.cascadeDepth,
-      resourceUsage: this.resourceUsage,
-      trendMetadata: this.trendMetadata,
-      success: this.success,
-      flagged_for_developer: this.flaggedForDeveloper,
-      developer_message: this.developerMessage,
-      timestamp: new Date().toISOString()
-    }, null, 2);
+  toJson(pretty: boolean = true): string {
+    return JSON.stringify(this.toObject(), null, pretty ? 2 : 0);
   }
 
-  static fromJson(jsonStr: string): PatchEnvelope {
-    const data = JSON.parse(jsonStr);
+  toJSON(): PatchEnvelopeJson {
+    return this.toObject();
+  }
+
+  static fromJson(payload: string | PatchEnvelopeJson): PatchEnvelope {
+    const data: PatchEnvelopeJson = typeof payload === 'string' ? JSON.parse(payload) : payload;
     const envelope = new PatchEnvelope(
       data.patch_id,
       data.patch_data,
@@ -76,10 +257,54 @@ class PatchEnvelope {
       data.cascadeDepth || 0,
       data.resourceUsage || {}
     );
+    envelope.trendMetadata = data.trendMetadata || envelope.trendMetadata;
     envelope.success = data.success || false;
-    envelope.flaggedForDeveloper = data.flagged_for_developer || false;
-    envelope.developerMessage = data.developer_message || "";
+    envelope.flagged_for_developer = data.flagged_for_developer || false;
+    envelope.developer_message = data.developer_message || "";
+    envelope.timestamp = data.timestamp;
+    if (data.envelopeHash) envelope.envelopeHash = data.envelopeHash;
+    envelope.withMutable((draft) => {
+      if (data.counters) (draft.counters = data.counters);
+      if (data.timeline) (draft.timeline = data.timeline);
+      if ((data as any).policySnapshot) (draft.policySnapshot = (data as any).policySnapshot);
+      if ((data as any).developer_flag_reason) (draft.developer_flag_reason = (data as any).developer_flag_reason);
+    });
     return envelope;
+  }
+
+  static create(state: PatchEnvelopeState): PatchEnvelope {
+    const envelope = new PatchEnvelope(
+      state.patchId,
+      state.patchData,
+      state.metadata,
+      state.attempts,
+      state.confidenceComponents,
+      state.breakerState,
+      state.cascadeDepth,
+      state.resourceUsage
+    );
+    envelope.trendMetadata = state.trendMetadata;
+    envelope.success = state.success;
+    envelope.flagged_for_developer = state.flagged_for_developer;
+    envelope.developer_message = state.developer_message;
+    envelope.counters = state.counters;
+    envelope.timeline = state.timeline;
+    envelope.policySnapshot = state.policySnapshot;
+    envelope.developer_flag_reason = state.developer_flag_reason;
+    envelope.timestamp = state.timestamp;
+    envelope.envelopeHash = state.envelopeHash;
+    envelope.withMutable((draft) => {
+      for (const key of Object.keys(state)) {
+        if (!(key in draft)) {
+          (draft as any)[key] = (state as any)[key];
+        }
+      }
+    });
+    return envelope;
+  }
+
+  clone(): PatchEnvelope {
+    return PatchEnvelope.fromJson(this.toObject());
   }
 }
 
@@ -138,19 +363,22 @@ class AIPatchEnvelope extends PatchWrapper {
         appendAttempt,
         markSuccess,
         setEnvelopeTimestamp,
-        setEnvelopeHash
+        setEnvelopeHash,
+        withMutableEnvelope
       } = require('./envelope');
       const crypto = require('crypto');
-      markSuccess(envelope as any, true);
-      appendAttempt(envelope as any, {
-        success: true,
-        note: result.execution_details,
-        breakerState: 'CLOSED',
-        failureCount: 0
-      });
-      setEnvelopeTimestamp(envelope as any);
       const sha256Hex = (s: string) => crypto.createHash('sha256').update(s).digest('hex');
-      setEnvelopeHash(envelope as any, sha256Hex);
+      withMutableEnvelope(envelope, (draft: any) => {
+        markSuccess(draft, true);
+        appendAttempt(draft, {
+          success: true,
+          note: result.execution_details,
+          breakerState: 'CLOSED',
+          failureCount: 0
+        });
+        setEnvelopeTimestamp(draft);
+        setEnvelopeHash(draft, sha256Hex);
+      });
     } catch { /* best-effort; do not break legacy flow */ }
 
     return result;
@@ -431,6 +659,13 @@ class ResilientMemoryBuffer implements MemoryStore {
 // breakerState, cascadeDepth, resourceUsage, flagged_for_developer/developerMessage, success,
 // timestamp, envelopeHash.
 
+function withMutableEnvelope<T>(envelope: PatchEnvelope | MutableEnvelope, mutator: (draft: MutableEnvelope) => T): T {
+  if (envelope instanceof PatchEnvelope) {
+    return envelope.withMutable(mutator);
+  }
+  return mutator(envelope);
+}
+
 type BreakerState = "OPEN" | "CLOSED" | "HALF_OPEN";
 
 // Schema-aligned attempt record (distinct from legacy attempts entries in PatchEnvelope)
@@ -661,6 +896,7 @@ export {
   TrendMetadata,
   ResourceUsageSnapshot,
   MutableEnvelope,
+  withMutableEnvelope,
   appendAttempt,
   mergeConfidence,
   updateTrend,
@@ -677,3 +913,5 @@ export {
 };
 
 export { ResilientMemoryBuffer };
+
+export type { PatchEnvelopeJson };
