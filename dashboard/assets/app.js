@@ -410,8 +410,7 @@ const actions = {
 
     renderHeartbeat({ status, timestamp: effectiveTimestamp });
     appendHeartbeatLog(
-      `${effectiveTimestamp} • heartbeat ${status}${
-        result?.fallback ? " (fallback)" : ""
+      `${effectiveTimestamp} • heartbeat ${status}${result?.fallback ? " (fallback)" : ""
       }`
     );
     log("Heartbeat dispatched.");
@@ -439,6 +438,17 @@ document.addEventListener("DOMContentLoaded", () => {
   showPayload(mockData.timeline[0]?.payload);
   renderExtensions(defaultConfig.extensions, mockData.extensions);
   renderHeartbeat(mockData.heartbeat);
+  // Auto-fill base URL to the local stub if the field is empty.
+  // This helps the dashboard immediately talk to a local development stub
+  // (127.0.0.1:5000) without requiring manual entry every time.
+  try {
+    if (dom.baseUrl && !(dom.baseUrl.value || '').trim()) {
+      dom.baseUrl.value = 'http://127.0.0.1:5000';
+    }
+  } catch (e) {
+    // Defensive: if the DOM structure changes, don't break initialization.
+    console.warn('Could not auto-fill base URL', e);
+  }
 
   if (dom.controlForm) {
     dom.controlForm.addEventListener("click", handleAction);
