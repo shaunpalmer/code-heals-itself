@@ -162,5 +162,20 @@
     </template>
 
     <script src="assets/app.js" type="module"></script>
+    <script>
+      document.getElementById('load-live-data').addEventListener('click', async () => {
+        try {
+          await Promise.all([
+            actions['refresh-metrics'](),
+            actions['pull-envelope'](),
+            actions['heartbeat-ping']()
+          ]);
+          alert('Live data loaded successfully!');
+        } catch (error) {
+          console.error('Failed to load live data:', error);
+          alert('Failed to load live data. Falling back to mock data.');
+        }
+      });
+    </script>
   </body>
 </html>
