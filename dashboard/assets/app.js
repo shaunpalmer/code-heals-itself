@@ -468,5 +468,23 @@ document.addEventListener("DOMContentLoaded", () => {
     );
   }
 
+  // Add functionality for the 'Load Live Data' button
+  document.getElementById('load-live-data').addEventListener('click', async () => {
+    try {
+      setBusy(true);
+      await actions['refresh-metrics']();
+      await actions['pull-envelope']();
+      await actions['heartbeat-ping']();
+      log('Live data loaded successfully.');
+    } catch (error) {
+      logError('Failed to load live data. Falling back to mock data.');
+      renderMetrics(mockData.metrics);
+      renderTimeline(mockData.timeline);
+      renderHeartbeat(mockData.heartbeat);
+    } finally {
+      setBusy(false);
+    }
+  });
+
   setActiveView("overview");
 });
