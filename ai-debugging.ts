@@ -157,7 +157,14 @@ export class AIDebugger {
   private finalPolishObserver: FinalPolishObserver;
 
   constructor(policy: Partial<HealerPolicy> = {}) {
-    this.policy = { ...defaultPolicy, ...policy };
+    // Clamp confidence floors to schema minimums (0.1)
+    const minFloor = 0.1;
+    const merged = { ...defaultPolicy, ...policy };
+    this.policy = {
+      ...merged,
+      syntax_conf_floor: Math.max(minFloor, merged.syntax_conf_floor),
+      logic_conf_floor: Math.max(minFloor, merged.logic_conf_floor)
+    };
     this.breaker = new DualCircuitBreaker(
       this.policy.max_syntax_attempts,
       this.policy.max_logic_attempts,

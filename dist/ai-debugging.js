@@ -72,6 +72,7 @@ exports.AIDebugger = exports.policyPresets = exports.defaultPolicy = void 0;
 const confidence_scoring_1 = require("./utils/typescript/confidence_scoring");
 const cascading_error_handler_1 = require("./utils/typescript/cascading_error_handler");
 const envelope_1 = require("./utils/typescript/envelope");
+const crypto_1 = __importDefault(require("crypto"));
 const strategy_1 = require("./utils/typescript/strategy");
 const human_debugging_1 = require("./utils/typescript/human_debugging");
 const code_error_analyzer_1 = require("./utils/typescript/code_error_analyzer");
@@ -161,6 +162,19 @@ class AIDebugger {
         const patch = { message, patched_code: patch_code, original_code, language: "typescript" };
         const envelope = this.enveloper.wrapPatch(patch);
         envelope.metadata = { ...envelope.metadata, ...metadata };
+        // Freeze current policy thresholds into policySnapshot (auditable, optional fields safeguarded)
+        try {
+            envelope.policySnapshot = {
+                modelClass: 'mid-tier', // could derive from preset selection
+                syntax_error_budget: this.policy.syntax_error_budget,
+                logic_error_budget: this.policy.logic_error_budget,
+                max_syntax_attempts: this.policy.max_syntax_attempts,
+                max_logic_attempts: this.policy.max_logic_attempts,
+                confidence_floor_syntax: this.policy.syntax_conf_floor,
+                confidence_floor_logic: this.policy.logic_conf_floor
+            };
+        }
+        catch { /* non-fatal */ }
         // Evaluate risky edit flags early and attach to metadata
         try {
             const riskFlags = this.riskObserver.evaluate(patch_code, original_code);
@@ -179,21 +193,23 @@ class AIDebugger {
         catch { /* non-fatal: best-effort */ }
         // Populate schema-required fields
         const conf = this.scorer.calculate_confidence(logits, error_type, historical);
-        envelope.confidenceComponents = {
+        (0, envelope_1.mergeConfidence)(envelope, {
             syntax: conf.syntax_confidence,
             logic: conf.logic_confidence,
             risk: this.is_risky(patch) ? 1 : 0
-        };
+        });
         // Normalize breaker state for schema: OPEN|CLOSED|HALF_OPEN
         const breakerSummaryForHeader = this.breaker.get_state_summary();
-        envelope.breakerState = breakerSummaryForHeader.state;
+        (0, envelope_1.setBreakerState)(envelope, breakerSummaryForHeader.state);
         // Provide stubs for missing methods if not present
-        envelope.cascadeDepth = typeof this.cascade.getDepth === "function"
+        const cascadeDepthVal = typeof this.cascade.getDepth === "function"
             ? this.cascade.getDepth()
             : this.cascade.cascadeDepth || 0;
-        envelope.resourceUsage = typeof this.sandbox.getResourceUsage === "function"
+        (0, envelope_1.setCascadeDepth)(envelope, cascadeDepthVal);
+        const ru = typeof this.sandbox.getResourceUsage === "function"
             ? this.sandbox.getResourceUsage()
             : {};
+        (0, envelope_1.mergeResourceUsage)(envelope, ru);
         const plan = this.human.debugLikeHuman(message, { error: message, code_snippet: patch_code });
         this.debugger.setStrategy(this.map_strategy((_a = plan === null || plan === void 0 ? void 0 : plan.recommended_strategy) !== null && _a !== void 0 ? _a : "LogAndFixStrategy"));
         const floor = (error_type === confidence_scoring_1.ErrorType.SYNTAX) ? this.policy.syntax_conf_floor : this.policy.logic_conf_floor;
@@ -218,8 +234,7 @@ class AIDebugger {
         }
         if (this.is_risky(patch) && this.policy.require_human_on_risky) {
             this.record_attempt(envelope, false, "Risk gate → human review");
-            envelope.flaggedForDeveloper = true;
-            envelope.developerMessage = "Risky patch (policy). Human approval required.";
+            (0, envelope_1.applyDeveloperFlag)(envelope, { flagged: true, message: "Risky patch (policy). Human approval required." });
             return this.finalize(envelope, "HUMAN_REVIEW", { cbReason, cascadeReason, floor });
         }
         const typeConf = (error_type === confidence_scoring_1.ErrorType.SYNTAX) ? conf.syntax_confidence : conf.logic_confidence;
@@ -280,16 +295,13 @@ class AIDebugger {
         let recommendedAction = breakerSummary.recommended_action;
         // Update envelope with rich trend metadata
         const localImproving = (comparison.errorsResolved > 0) || (comparison.qualityDelta > 0);
-        envelope.trendMetadata = {
+        (0, envelope_1.updateTrend)(envelope, {
             errorsDetected: patchedAnalysis.errorCount,
             errorsResolved: comparison.errorsResolved,
-            errorTrend: localImproving
-                ? "improving"
-                : (breakerSummary.is_improving ? "improving" : (breakerSummary.improvement_velocity < 0 ? "worsening" : "plateauing")),
-            codeQualityScore: patchedAnalysis.qualityScore,
+            qualityScore: patchedAnalysis.qualityScore,
             improvementVelocity: breakerSummary.improvement_velocity,
             stagnationRisk: breakerSummary.should_continue_attempts ? 0.2 : 0.8
-        };
+        });
         this.scorer.record_outcome(conf.overall_confidence, success);
         if (!success)
             this.cascade.add_error_to_chain(error_type, message, conf.overall_confidence, 1);
@@ -356,20 +368,47 @@ class AIDebugger {
         }
     }
     record_attempt(env, ok, note = "") {
-        // Attach a compact breaker snapshot with required fields for schema
+        var _a, _b, _c, _d, _e;
         const b = this.breaker.get_state_summary();
-        env.attempts.push({
-            ts: Date.now() / 1000,
+        (0, envelope_1.appendAttempt)(env, {
             success: ok,
             note,
-            breaker: {
-                state: b.state,
-                failure_count: b.failure_count
-            }
+            breakerState: b.state,
+            failureCount: b.failure_count
         });
-        env.success = env.success || ok;
+        (0, envelope_1.markSuccess)(env, ok);
+        // Update counters (determine kind based on last error type heuristic in note)
+        try {
+            const lastAttemptIndex = (((_a = env.attempts) === null || _a === void 0 ? void 0 : _a.length) || 1);
+            const errorsResolved = (_c = (_b = env.trendMetadata) === null || _b === void 0 ? void 0 : _b.errorsResolved) !== null && _c !== void 0 ? _c : 0;
+            const kind = /syntax/i.test(note) ? 'syntax' : (/logic/i.test(note) ? 'logic' : 'other');
+            (0, envelope_1.updateCounters)(env, kind, errorsResolved);
+            const overallConfidence = (() => {
+                const cc = env.confidenceComponents || {};
+                const vals = ['syntax', 'logic', 'risk'].map(k => typeof cc[k] === 'number' ? cc[k] : undefined).filter(v => typeof v === 'number');
+                if (!vals.length)
+                    return undefined;
+                return Math.max(0, Math.min(1, vals.reduce((a, b) => a + b, 0) / vals.length));
+            })();
+            (0, envelope_1.addTimelineEntry)(env, {
+                attempt: lastAttemptIndex,
+                errorsDetected: (_d = env.trendMetadata) === null || _d === void 0 ? void 0 : _d.errorsDetected,
+                errorsResolved: (_e = env.trendMetadata) === null || _e === void 0 ? void 0 : _e.errorsResolved,
+                overallConfidence,
+                breakerState: b.state,
+                action: note ? note.slice(0, 40) : undefined
+            });
+        }
+        catch { /* non-fatal */ }
     }
     finalize(env, action, extras) {
+        // Canonical timestamp & hash just before emitting final envelope shape
+        (0, envelope_1.setEnvelopeTimestamp)(env);
+        try {
+            const sha256Hex = (s) => crypto_1.default.createHash("sha256").update(s).digest("hex");
+            (0, envelope_1.setEnvelopeHash)(env, sha256Hex);
+        }
+        catch { /* hash best-effort */ }
         // Check for final polish opportunity (95% confidence + zero errors)
         if (action === 'PROMOTE') {
             this.checkAndApplyFinalPolish(env, extras);
