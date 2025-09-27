@@ -163,6 +163,16 @@
 
     <script src="assets/app.js" type="module"></script>
     <script>
+      // Always load mock data by default on page load
+      document.addEventListener('DOMContentLoaded', () => {
+        renderMetrics(mockData.metrics);
+        renderTimeline(mockData.timeline);
+        showPayload(mockData.timeline[0]?.payload);
+        renderExtensions(defaultConfig.extensions, mockData.extensions);
+        renderHeartbeat(mockData.heartbeat);
+      });
+
+      // 'Load Live Data' button tries to fetch live data, but never clears UI if it fails
       document.getElementById('load-live-data').addEventListener('click', async () => {
         try {
           await Promise.all([
@@ -173,7 +183,7 @@
           alert('Live data loaded successfully!');
         } catch (error) {
           console.error('Failed to load live data:', error);
-          alert('Failed to load live data. Falling back to mock data.');
+          alert('Failed to load live data. Showing mock data.');
         }
       });
     </script>
