@@ -1,3 +1,7 @@
+output#error, .error {
+  color: #c00;
+  font-weight: bold;
+}
 :root {
   color-scheme: dark light;
   --bg: #0b1019;

@@ -119,6 +119,13 @@ dom.navLinks = dom.nav ? dom.nav.querySelectorAll(".nav-link") : [];
 const log = (message) => {
   const now = new Date().toISOString();
   dom.controlLog.textContent = `${now}: ${message}`;
+  dom.controlLog.classList.remove('error');
+}
+
+const logError = (message) => {
+  const now = new Date().toISOString();
+  dom.controlLog.textContent = `${now}: ${message}`;
+  dom.controlLog.classList.add('error');
 };
 
 const setBusy = (isBusy) => {
@@ -427,18 +434,25 @@ const handleAction = async (event) => {
     await actions[action]();
   } catch (error) {
     console.error(error);
-    log(error.message);
+    logError(error.message || 'An error occurred while fetching data.');
   } finally {
     setBusy(false);
   }
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+
+  // Show mock data by default
   renderMetrics(mockData.metrics);
   renderTimeline(mockData.timeline);
   showPayload(mockData.timeline[0]?.payload);
   renderExtensions(defaultConfig.extensions, mockData.extensions);
   renderHeartbeat(mockData.heartbeat);
+
+  // Ensure live data loading is prioritized and mock data is only a fallback.
+  actions["refresh-metrics"]().catch((e) => logError("Could not load live metrics: " + (e?.message || e)));
+  actions["pull-envelope"]().catch((e) => logError("Could not load live envelope: " + (e?.message || e)));
+  actions["heartbeat-ping"]().catch((e) => logError("Could not ping heartbeat: " + (e?.message || e)));
 
   if (dom.controlForm) {
     dom.controlForm.addEventListener("click", handleAction);
