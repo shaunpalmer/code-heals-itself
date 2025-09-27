@@ -442,17 +442,18 @@ const handleAction = async (event) => {
 
 document.addEventListener("DOMContentLoaded", () => {
 
-  // Show mock data by default
+
+  // Always show mock data by default so the UI is never blank
   renderMetrics(mockData.metrics);
   renderTimeline(mockData.timeline);
   showPayload(mockData.timeline[0]?.payload);
   renderExtensions(defaultConfig.extensions, mockData.extensions);
   renderHeartbeat(mockData.heartbeat);
 
-  // Ensure live data loading is prioritized and mock data is only a fallback.
-  actions["refresh-metrics"]().catch((e) => logError("Could not load live metrics: " + (e?.message || e)));
-  actions["pull-envelope"]().catch((e) => logError("Could not load live envelope: " + (e?.message || e)));
-  actions["heartbeat-ping"]().catch((e) => logError("Could not ping heartbeat: " + (e?.message || e)));
+  // Optionally, try to fetch live data on load, but do NOT clear UI if it fails
+  actions["refresh-metrics"]().then(() => log("Live metrics loaded.")).catch((e) => logError("Could not load live metrics: " + (e?.message || e)));
+  actions["pull-envelope"]().then(() => log("Live envelope loaded.")).catch((e) => logError("Could not load live envelope: " + (e?.message || e)));
+  actions["heartbeat-ping"]().then(() => log("Live heartbeat loaded.")).catch((e) => logError("Could not ping heartbeat: " + (e?.message || e)));
 
   if (dom.controlForm) {
     dom.controlForm.addEventListener("click", handleAction);
@@ -469,22 +470,37 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // Add functionality for the 'Load Live Data' button
-  document.getElementById('load-live-data').addEventListener('click', async () => {
-    try {
+  const liveBtn = document.getElementById('load-live-data');
+  if (liveBtn) {
+    liveBtn.addEventListener('click', async () => {
       setBusy(true);
-      await actions['refresh-metrics']();
-      await actions['pull-envelope']();
-      await actions['heartbeat-ping']();
-      log('Live data loaded successfully.');
-    } catch (error) {
-      logError('Failed to load live data. Falling back to mock data.');
-      renderMetrics(mockData.metrics);
-      renderTimeline(mockData.timeline);
-      renderHeartbeat(mockData.heartbeat);
-    } finally {
+      let hadError = false;
+      try {
+        await actions['refresh-metrics']();
+      } catch (e) {
+        logError('Could not load live metrics: ' + (e?.message || e));
+        hadError = true;
+      }
+      try {
+        await actions['pull-envelope']();
+      } catch (e) {
+        logError('Could not load live envelope: ' + (e?.message || e));
+        hadError = true;
+      }
+      try {
+        await actions['heartbeat-ping']();
+      } catch (e) {
+        logError('Could not ping heartbeat: ' + (e?.message || e));
+        hadError = true;
+      }
+      if (!hadError) {
+        log('Live data loaded successfully.');
+      } else {
+        logError('Some live data failed to load. Mock data remains visible.');
+      }
       setBusy(false);
-    }
-  });
+    });
+  }
 
   setActiveView("overview");
 });
