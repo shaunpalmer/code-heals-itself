@@ -1,5 +1,17 @@
 # CHANGELOG - Learning from Mistakes
 
+## Date: September 27, 2025
+
+### FIX: Enforce Schema Minimums for Confidence Floors in TypeScript AIDebugger
+- **What changed**: Updated the `AIDebugger` constructor in `ai-debugging.ts` to always clamp `syntax_conf_floor` and `logic_conf_floor` to the schema minimum (0.1), regardless of input.
+- **Why it matters**: Prevents invalid policy configurations that violate the schema, ensuring all envelopes and policy snapshots are always contract-compliant. This eliminates a class of schema validation errors and makes the system robust to misconfiguration.
+- **How to read it in our engine**: Any attempt to set a confidence floor below 0.1 is automatically corrected, so all downstream logic and schema validation will succeed.
+- **Tests**: All Jest tests now pass, including those with permissive settings.
+
+### LESSON LEARNED: Always Enforce Schema Contracts in Code
+- **Rule**: Never trust external/test input to be schema-compliant—enforce minimums and maximums in constructors and setters.
+- **Outcome**: The system is now resilient to accidental or intentional misconfiguration, and future changes to the schema minimums can be enforced in one place.
+
 ## Date: September 25, 2025
 
 ### IMPROVEMENT: Stabilized Confidence Softmax on Python Side
