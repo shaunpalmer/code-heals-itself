@@ -15,8 +15,8 @@
  *     "file": "path/to/file.ts",
  *     "line": 42,
  *     "column": 15,
- *     "message": "Cannot find name 'undefinedVar'",
- *     "code": "TS2304",
+ *     "message": "Type 'number' is not assignable to type 'string'",
+ *     "code": "TS2322",
  *     "severity": "ERROR"
  *   }
  * 
@@ -24,8 +24,9 @@
  *   - Uses node --check (fast, AST-only) or tsc --noEmit (type checking)
  *   - Parses stderr with regex (Node/TS error formats are stable)
  *   - Returns structured JSON for envelope attachment (no schema changes)
- *   - Non-zero exit on parse failure; zero exit on clean
+ *   - Non-zero exit on error found; zero exit on clean
  *   - Supports both file checking and stdin pipe mode
+ *   - LLM-friendly error messages with file paths, causes, and hints
  */
 
 import { spawn } from 'child_process';
@@ -34,18 +35,19 @@ import { resolve } from 'path';
 
 // Regex patterns for Node.js and TypeScript errors
 // Format 1: Node.js syntax error
-//   /path/to/file.js:10
+//   /path/to/file.js:2
 //   const x = [1,2,3
-//             ^
+//   
 //   SyntaxError: Unexpected end of input
-const NODE_ERROR_RE = /^(.+?):(\d+)\n.*?\n\s*\^+\n(\w+Error):\s*(.+)$/ms;
+const NODE_ERROR_RE = /^(.+?):(\d+)\s*\n([\s\S]*?)(\w+Error):\s*(.+?)$/m;
 
 // Format 2: TypeScript compiler error
 //   file.ts(42,15): error TS2304: Cannot find name 'undefinedVar'.
-const TS_ERROR_RE = /^(.+?)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s*(.+?)\.?$/m;
+//   file.ts:42:15 - error TS2304: Cannot find name 'undefinedVar'.
+const TS_ERROR_RE = /^(.+?)[\(:](\d+)[,:](\d+)\)?[\s:-]+(\w+)\s+(TS\d+):\s*(.+?)\.?$/m;
 
-// Format 3: ESLint JSON output (if --format json)
-// [{"filePath":"file.js","messages":[{"line":10,"column":5,"severity":2,"message":"...","ruleId":"..."}]}]
+// Column indicator pattern (spaces before ^)
+const COLUMN_INDICATOR_RE = /^\s*\^+\s*$/m;
 
 /**
  * Parse Node.js error output (from node --check)
@@ -59,13 +61,17 @@ function parseNodeError(stderr, defaultFile = null) {
   if (match) {
     const file = match[1];
     const line = parseInt(match[2], 10);
-    const errorType = match[3]; // SyntaxError, ReferenceError, etc.
-    const message = match[4].trim();
+    const codeContext = match[3];
+    const errorType = match[4]; // SyntaxError, ReferenceError, etc.
+    const message = match[5].trim();
 
-    // Extract column from ^ pointer (count leading spaces)
-    const lines = stderr.split('\n');
-    const pointerLine = lines.find(l => /^\s*\^+\s*$/.test(l));
-    const column = pointerLine ? pointerLine.indexOf('^') : null;
+    // Extract column from ^ pointer (if present)
+    let column = null;
+    const pointerMatch = COLUMN_INDICATOR_RE.exec(stderr);
+    if (pointerMatch) {
+      const pointerLine = pointerMatch[0];
+      column = pointerLine.indexOf('^');
+    }
 
     return {
       file,
@@ -82,7 +88,7 @@ function parseNodeError(stderr, defaultFile = null) {
     file: defaultFile,
     line: null,
     column: null,
-    message: stderr.split('\n')[0]?.slice(0, 200) || 'Unknown error',
+    message: `Unparseable Node.js error in ${defaultFile}. Raw output: ${stderr.slice(0, 200)}`,
     code: 'JS_UNPARSED',
     severity: 'ERROR'
   } : null;
@@ -120,7 +126,7 @@ function parseTypescriptError(stderr, defaultFile = null) {
     file: defaultFile,
     line: null,
     column: null,
-    message: stderr.split('\n')[0]?.slice(0, 200) || 'Unknown error',
+    message: `Unparseable TypeScript error in ${defaultFile}. Raw output: ${stderr.slice(0, 200)}`,
     code: 'TS_UNPARSED',
     severity: 'ERROR'
   } : null;
@@ -148,7 +154,14 @@ async function checkJavaScript(filePath) {
     });
 
     proc.on('error', err => {
-      reject(new Error(`Failed to run node --check: ${err.message}`));
+      resolve({
+        file: filePath,
+        line: null,
+        column: null,
+        message: `Failed to run node --check on ${filePath}: ${err.message} (check Node.js installation or file permissions)`,
+        code: 'JS_CHECK_FAILED',
+        severity: 'FATAL_SYNTAX'
+      });
     });
   });
 }
@@ -180,7 +193,14 @@ async function checkTypeScript(filePath) {
     });
 
     proc.on('error', err => {
-      reject(new Error(`Failed to run tsc: ${err.message}`));
+      resolve({
+        file: filePath,
+        line: null,
+        column: null,
+        message: `Failed to run tsc on ${filePath}: ${err.message} (check TypeScript installation or tsconfig.json)`,
+        code: 'TS_CHECK_FAILED',
+        severity: 'ERROR'
+      });
     });
   });
 }
@@ -224,7 +244,14 @@ async function main() {
     const filePath = resolve(file);
 
     if (!existsSync(filePath)) {
-      console.error(`File not found: ${filePath}`);
+      errors.push({
+        file: filePath,
+        line: null,
+        column: null,
+        message: `File not found: ${filePath} (check path or file was deleted)`,
+        code: 'FILE_NOT_FOUND',
+        severity: 'FATAL_SYNTAX'
+      });
       continue;
     }
 
@@ -238,7 +265,14 @@ async function main() {
         errors.push(error);
       }
     } catch (err) {
-      console.error(`Error checking ${filePath}: ${err.message}`);
+      errors.push({
+        file: filePath,
+        line: null,
+        column: null,
+        message: `Error checking ${filePath}: ${err.message}`,
+        code: 'CHECK_FAILED',
+        severity: 'ERROR'
+      });
     }
   }
 

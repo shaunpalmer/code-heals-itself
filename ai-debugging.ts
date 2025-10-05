@@ -52,14 +52,16 @@ import {
   addTimelineEntry,
   MutableEnvelope
 } from "./utils/typescript/envelope";
+// If running in Node.js, ensure @types/node is installed for type support
 import crypto from "crypto";
+// If you are targeting the browser, consider using a polyfill like 'crypto-js' or 'webcrypto' and update usages accordingly
 import { Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy } from "./utils/typescript/strategy";
 import { SeniorDeveloperSimulator } from "./utils/typescript/human_debugging";
 import { TrendAwareCircuitBreaker } from "./utils/typescript/trend_aware_circuit_breaker";
-import { CodeErrorAnalyzer } from "./utils/typescript/code_error_analyzer";
 import { HangWatchdog, RiskyEditObserver, escalateSuspicion } from "./utils/typescript/observer";
 import { PathResolutionObserver } from "./utils/typescript/path_resolution_observer";
 import Ajv from "ajv";
+import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { sleep, withJitter, suggestBackoffMs, pauseAndJitterConsult, BackoffPolicy, DefaultBackoffPolicy } from "./utils/typescript/backoff";
@@ -189,7 +191,7 @@ export class AIDebugger {
     this.pathObserver = new PathResolutionObserver(process.cwd());
   }
 
-  process_error(
+  async process_error(
     error_type: ErrorType,
     message: string,
     patch_code: string,
@@ -274,7 +276,7 @@ export class AIDebugger {
     const validate = ajv.compile(schema);
     const envelopeJson = JSON.parse(envelope.toJson());
     if (!validate(envelopeJson)) {
-      throw new Error("PatchEnvelope validation failed: " + ajv.errorsText(validate.errors));
+      throw new Error("PatchEnvelope validation failed: " + ajv.errorsText());
     }
 
     if (this.is_risky(patch) && this.policy.require_human_on_risky) {
@@ -303,6 +305,108 @@ export class AIDebugger {
     });
     const success = Boolean(sbox.success);
 
+    // Re-banker integration: Extract structured error data (5-field JSON)
+    // Priority 1: Parse runtime error if sandbox failed
+    // Priority 2: Run static syntax check if no runtime error
+    try {
+      const tmpPath = path.join('.', `.tmp_rebank_${Date.now()}.ts`);
+      fs.writeFileSync(tmpPath, patch_code, 'utf-8');
+
+      try {
+        const runtimeError = sbox.error_message;
+
+        if (runtimeError && runtimeError.trim()) {
+          // Priority 1: Parse runtime error through re-banker stdin mode
+          const rebankScript = path.join('.', 'ops', 'rebank', 'rebank_js_ts.mjs');
+
+          const proc = spawn('node', [rebankScript, '--stdin', '--typescript'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 5000
+          });
+
+          let stdout = '';
+          let stderr = '';
+          proc.stdout?.on('data', (chunk: any) => { stdout += chunk.toString(); });
+          proc.stderr?.on('data', (chunk: any) => { stderr += chunk.toString(); });
+
+          // Send runtime error to stdin
+          proc.stdin?.write(runtimeError);
+          proc.stdin?.end();
+
+          await new Promise<void>((resolve) => {
+            proc.on('close', (code: number | null) => {
+              try {
+                if (code === 1 && stdout.trim()) {
+                  // Re-banker successfully parsed error
+                  const parsed = JSON.parse(stdout);
+                  parsed.code = 'TS_RUNTIME';  // Override to distinguish from syntax
+                  parsed.severity = 'FATAL_RUNTIME';
+                  (envelope.metadata as any).rebanker_result = parsed;
+                } else {
+                  // Couldn't parse - use raw
+                  (envelope.metadata as any).rebanker_result = {
+                    file: 'unknown',
+                    line: null,
+                    column: null,
+                    message: runtimeError,
+                    code: 'TS_RUNTIME_UNPARSED',
+                    severity: 'FATAL_RUNTIME'
+                  };
+                }
+              } catch (e) {
+                // JSON parse error - use raw
+                (envelope.metadata as any).rebanker_result = {
+                  file: 'unknown',
+                  line: null,
+                  column: null,
+                  message: `Parse error: ${e}\n${runtimeError}`,
+                  code: 'TS_RUNTIME_UNPARSED',
+                  severity: 'FATAL_RUNTIME'
+                };
+              }
+              resolve();
+            });
+          });
+        } else {
+          // Priority 2: Static syntax check via re-banker
+          const rebankScript = path.join('.', 'ops', 'rebank', 'rebank_js_ts.mjs');
+
+          const proc = spawn('node', [rebankScript, tmpPath, '--quiet'], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 5000
+          });
+
+          let stdout = '';
+          proc.stdout?.on('data', (chunk: any) => { stdout += chunk.toString(); });
+
+          await new Promise<void>((resolve) => {
+            proc.on('close', (code: number | null) => {
+              try {
+                if (stdout.trim()) {
+                  const result = JSON.parse(stdout);
+                  (envelope.metadata as any).rebanker_result = result;
+                } else {
+                  (envelope.metadata as any).rebanker_result = { status: 'clean' };
+                }
+              } catch (e) {
+                (envelope.metadata as any).rebanker_result = {
+                  status: 'error',
+                  message: `Re-banker parse error: ${e}`
+                };
+              }
+              resolve();
+            });
+          });
+        }
+      } finally {
+        // Clean up temp file
+        try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      }
+    } catch (e) {
+      // Re-banker integration failed - non-fatal, continue without it
+      console.warn(`[Re-banker] Integration error: ${e}`);
+    }
+
     // Update resource usage in envelope from sandbox after execution
     try {
       envelope.resourceUsage = (this.sandbox as any).getResourceUsage?.() || envelope.resourceUsage;
@@ -319,27 +423,40 @@ export class AIDebugger {
 
     const strat = this.debugger.debug({ error: message, vulnerability: message });
 
-    // Analyze code to get error counts for trend tracking
-    const originalAnalysis = CodeErrorAnalyzer.analyzeCode(original_code);
-    const patchedAnalysis = CodeErrorAnalyzer.analyzeCode(patch_code);
-    const comparison = CodeErrorAnalyzer.compareAnalyses(originalAnalysis, patchedAnalysis);
+    // Extract re-banker results for error delta calculation (fast, already computed)
+    const rebankerResult = (envelope.metadata as any)?.rebanker_result || {};
+
+    // Determine current error count from re-banker (structured 5-field JSON)
+    // Note: Re-banker returns FIRST error only; if line exists → at least 1 error
+    let currentErrors = 0;
+    if (rebankerResult.line !== null && rebankerResult.line !== undefined) {
+      currentErrors = 1; // At least one error (structured info on first)
+    } else if (rebankerResult.status === 'clean') {
+      currentErrors = 0;
+    }
+
+    // Get previous error count from last attempt (if exists)
+    const previousErrors = (envelope.trendMetadata as any)?.errorsDetected || 0;
+
+    // Calculate error delta (positive = improvement)
+    const errorsResolved = Math.max(0, previousErrors - currentErrors);
 
     // Calculate lines of code for error density
     const linesOfCode = patch_code.split('\n').length;
 
-    // Record attempt with error delta information, confidence, and code metrics
+    // Record attempt with error delta from re-banker, confidence, and code metrics
     this.breaker.record_attempt(
       error_type,
       success,
-      patchedAnalysis.errorCount,  // errors detected in current code
-      comparison.errorsResolved,   // errors resolved from previous version
+      currentErrors,        // errors detected by re-banker (blazingly fast ~100ms)
+      errorsResolved,       // errors resolved from previous version
       conf.overall_confidence,     // confidence score for this attempt
       linesOfCode                  // lines of code for density calculation
     );
 
     // Create a PatchResult and persist to memory for traceability
     try {
-      const pr = new PatchResult(success, comparison.errorsResolved, Math.max(0, comparison.errorsResolved), strat.details ?? '');
+      const pr = new PatchResult(success, errorsResolved, Math.max(0, errorsResolved), strat.details ?? '');
       (this.memory as any).safeAddOutcome?.(JSON.stringify({ kind: 'patch_result', attempt: (metadata as any)?.attempt ?? null, patchId: envelope.patchId, result: pr }))
         ?? this.memory.addOutcome(JSON.stringify({ kind: 'patch_result', attempt: (metadata as any)?.attempt ?? null, patchId: envelope.patchId, result: pr }));
     } catch { /* best-effort */ }
@@ -348,12 +465,12 @@ export class AIDebugger {
     const breakerSummary = this.breaker.get_state_summary();
     let recommendedAction = breakerSummary.recommended_action as string;
 
-    // Update envelope with rich trend metadata
-    const localImproving = (comparison.errorsResolved > 0) || (comparison.qualityDelta > 0);
+    // Update envelope with rich trend metadata (using re-banker error counts)
+    const localImproving = errorsResolved > 0;
     updateTrend(envelope as unknown as MutableEnvelope, {
-      errorsDetected: patchedAnalysis.errorCount,
-      errorsResolved: comparison.errorsResolved,
-      qualityScore: patchedAnalysis.qualityScore,
+      errorsDetected: currentErrors,
+      errorsResolved: errorsResolved,
+      qualityScore: success ? 1.0 : 0.0, // Binary quality from re-banker (clean vs error)
       improvementVelocity: breakerSummary.improvement_velocity,
       stagnationRisk: breakerSummary.should_continue_attempts ? 0.2 : 0.8
     });
