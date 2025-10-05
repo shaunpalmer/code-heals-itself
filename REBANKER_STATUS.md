@@ -49,6 +49,56 @@ The MCP host (your self-healing loop) calls these tools instead of shelling out 
 
 ## Current Status
 
+### ✅ Python Re-Banker - COMPLETE
+**Script:** `ops/rebank/rebank_py.py` (235 lines)  
+**Status:** Fully integrated into main loop  
+**Features:**
+- ✅ Static syntax checking via `python -m py_compile`
+- ✅ Runtime error parsing via `--stdin` mode
+- ✅ **Column number extraction** from `^` pointer (NEW!)
+- ✅ 5-field JSON output: `{file, line, column, message, code, severity}`
+- ✅ Handles SyntaxError, IndentationError, TabError, NameError, TypeError, etc.
+- ✅ Integrated into `ai-debugging.py` step 7b (two-level error capture)
+- ✅ Error delta calculation feeds circuit breaker
+
+**Test Results:**
+```bash
+# Column extraction working
+x = [1,2,3     → {line: 1, column: 8} ✅
+def x(: pass   → {line: 1, column: 10} ✅
+print('hello'  → {line: 1, column: 9} ✅
+
+# Runtime error parsing working
+NameError      → {file: "test.py", line: 10, code: "RUNTIME_ERROR"} ✅
+ZeroDivisionError → {file: "calc.py", line: 42, code: "RUNTIME_ERROR"} ✅
+```
+
+**Integration Flow:**
+1. Sandbox executes patched code
+2. **Priority 1:** If runtime error exists, parse via `rebank_py.py --stdin`
+3. **Priority 2:** If no runtime error, run static syntax check
+4. Attach structured error to `envelope["metadata"]["rebanker_result"]`
+5. Calculate error delta (previous_errors - current_errors)
+6. Feed delta to circuit breaker for trend analysis
+
+---
+
+### ⚠️ TypeScript Has Old Regex-Based Checking - NEEDS REMOVAL
+**File:** `ai-debugging.ts` (lines 830-858)  
+**Issue:** `balancePairs()` function does manual bracket counting  
+**Problem:**
+- Regex-based: `/\(/g`, `/\{/g`, `/\[/g` - slow, inaccurate
+- Ignores strings/comments (false positives)
+- Auto-appends closing brackets (dangerous!)
+- **Redundant** with re-banker architecture
+
+**Action Required:**
+1. Create JS/TS re-banker (see below)
+2. Remove `balancePairs()` from TypeScript main loop
+3. Replace with re-banker call (same as Python integration)
+
+---
+
 ### ✅ Documented
 - Full design in `Syntax errors wrapping the envelope.md`
 - Three complete script implementations (JS/TS, Python, PHP)

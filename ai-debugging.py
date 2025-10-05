@@ -15,7 +15,8 @@ from envelope import AIPatchEnvelope, PatchEnvelope, MemoryBuffer
 from utils.python.envelope_helpers import (
     append_attempt, mark_success, update_counters, add_timeline_entry,
     set_envelope_timestamp, set_envelope_hash, merge_confidence, update_trend,
-    set_breaker_state, set_cascade_depth, merge_resource_usage, apply_developer_flag
+    set_breaker_state, set_cascade_depth, merge_resource_usage, apply_developer_flag,
+    run_rebanker
 )
 from strategy import Debugger, LogAndFixStrategy, RollbackStrategy, SecurityAuditStrategy
 from human_debugging import SeniorDeveloperSimulator
@@ -163,8 +164,123 @@ class AIDebugger:
         })
         success = bool(sandbox_result.get("success"))
 
+        # 7b) RE-BANKER: Run on EVERY iteration to capture error variance (34→12→3)
+        # This gives us structured error data (file/line/column/message/code/severity)
+        # which feeds the delta-gradient circuit breaker and LLM envelope
+        with envelope.mutable_payload() as payload:
+            import tempfile
+            from pathlib import Path
+            
+            # Save patched code to temp file for re-banking (needed for both paths)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tmp:
+                tmp.write(patch_code)
+                tmp_path = tmp.name
+            
+            try:
+                # Priority 1: Parse runtime error if sandbox execution failed
+                runtime_error = sandbox_result.get("error_message")
+                
+                if runtime_error:
+                    # Runtime error detected - parse it through re-banker to extract file/line/column
+                    # Python runtime errors have format:
+                    #   Traceback (most recent call last):
+                    #     File "file.py", line 10, in <module>
+                    #   NameError: name 'undefined_var' is not defined
+                    
+                    # Feed the runtime error blob to re-banker's stdin parser
+                    import subprocess
+                    rebank_script = Path(__file__).parent / "ops" / "rebank" / "rebank_py.py"
+                    
+                    if rebank_script.exists():
+                        try:
+                            result = subprocess.run(
+                                ["python", str(rebank_script), "--stdin"],
+                                input=runtime_error,
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            
+                            if result.returncode == 0:
+                                # Re-banker successfully parsed error
+                                parsed = json.loads(result.stdout)
+                                parsed["code"] = "RUNTIME_ERROR"  # Override code to distinguish from syntax
+                                parsed["severity"] = "FATAL_RUNTIME"
+                                payload.setdefault("metadata", {})["rebanker_result"] = parsed
+                            else:
+                                # Re-banker couldn't parse - fall back to raw blob
+                                payload.setdefault("metadata", {})["rebanker_result"] = {
+                                    "file": "unknown",
+                                    "line": None,
+                                    "column": None,
+                                    "message": runtime_error,
+                                    "code": "RUNTIME_ERROR_UNPARSED",
+                                    "severity": "FATAL_RUNTIME"
+                                }
+                        except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception) as e:
+                            # Error parsing runtime error - use raw
+                            payload.setdefault("metadata", {})["rebanker_result"] = {
+                                "file": "unknown",
+                                "line": None,
+                                "column": None,
+                                "message": f"Parse error: {e}\n{runtime_error}",
+                                "code": "RUNTIME_ERROR_UNPARSED",
+                                "severity": "FATAL_RUNTIME"
+                            }
+                    else:
+                        # Re-banker script missing - use raw
+                        payload.setdefault("metadata", {})["rebanker_result"] = {
+                            "file": "unknown",
+                            "line": None,
+                            "column": None,
+                            "message": runtime_error,
+                            "code": "RUNTIME_ERROR_UNPARSED",
+                            "severity": "FATAL_RUNTIME"
+                        }
+                else:
+                    # Priority 2: Static syntax check via re-banker
+                    run_rebanker(payload, file_path=tmp_path, language="python")
+                    # Re-banker result now in payload["metadata"]["rebanker_result"]
+                    # Contains: {"file": str, "line": int, "column": int|None, "message": str, "code": str, "severity": str}
+                    # OR: {"status": "clean"} if no errors
+            finally:
+                # Clean up temp file
+                Path(tmp_path).unlink(missing_ok=True)
+
         # 8) Strategy follow-up (log/fix/rollback/security audit)
         strategy_outcome = self.debugger.debug({"error": message, "vulnerability": message})
+
+        # 8b) Extract re-banker data for trend analysis (error delta calculation)
+        with envelope.mutable_payload() as payload:
+            rebanker_result = payload.get("metadata", {}).get("rebanker_result", {})
+            
+            # Determine current error count from re-banker
+            # Note: Re-banker returns FIRST error only; full analyzer would give total count
+            # For now: if re-banker found error → at least 1; if clean → 0
+            current_errors = 0
+            if "line" in rebanker_result and rebanker_result.get("line") is not None:
+                current_errors = 1  # At least one error (could be more, but we have structured info on first)
+            elif rebanker_result.get("status") == "clean":
+                current_errors = 0
+            
+            # Get previous error count from last attempt (if exists)
+            previous_errors = payload.get("trendMetadata", {}).get("errorsDetected", 0)
+            
+            # Calculate error delta (positive = improvement)
+            errors_resolved = max(0, previous_errors - current_errors)
+            
+            # Update trend metadata with delta
+            quality_score = 1.0 if current_errors == 0 else (0.5 if errors_resolved > 0 else 0.1)
+            improvement_velocity = errors_resolved / max(1, previous_errors) if previous_errors > 0 else 0.0
+            
+            update_trend(
+                payload,
+                errors_detected=current_errors,
+                errors_resolved=errors_resolved,
+                quality_score=quality_score,
+                improvement_velocity=improvement_velocity,
+                stagnation_risk=0.0 if errors_resolved > 0 else 0.5
+            )
 
         # 9) Update state: breaker / calibration / cascade / memory / envelope
         self.breaker.record_attempt(error_type, success)

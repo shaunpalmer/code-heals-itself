@@ -194,6 +194,129 @@ def add_timeline_entry(env: Dict[str, Any], *, attempt: int, errors_detected: Op
     })
     return env
 
+# 14) run_rebanker (captures variance on every iteration)
+
+def run_rebanker(env: Dict[str, Any], *, file_path: str, language: str = "python") -> Dict[str, Any]:
+    """
+    Run the appropriate re-banker script on the current file to extract structured error data.
+    This should be called on EVERY iteration to capture the error delta (34→12→3).
+    
+    Args:
+        env: The patch envelope dict
+        file_path: Path to the file to check (e.g., patch_data.patched_code saved to disk)
+        language: One of "python", "javascript", "typescript", "php"
+    
+    Returns:
+        Updated envelope with rebanker_result in metadata
+    
+    Side effects:
+        - Runs ops/rebank/rebank_<lang>.py subprocess
+        - Attaches structured error object to env["metadata"]["rebanker_result"]
+        - On clean: {"status": "clean"}
+        - On error: {"file": str, "line": int, "column": int|None, "message": str, "code": str, "severity": str}
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    # Map language to rebanker script
+    script_map = {
+        "python": "rebank_py.py",
+        "javascript": "rebank_js_ts.mjs",
+        "typescript": "rebank_js_ts.mjs",
+        "php": "rebank_php.php"
+    }
+    
+    script_name = script_map.get(language.lower())
+    if not script_name:
+        # Unknown language, skip re-banking
+        if "metadata" not in env:
+            env["metadata"] = {}
+        env["metadata"]["rebanker_result"] = {
+            "status": "unsupported_language",
+            "language": language
+        }
+        return env
+    
+    # Construct path to rebanker script
+    repo_root = Path(__file__).parent.parent.parent  # utils/python/ -> repo root
+    script_path = repo_root / "ops" / "rebank" / script_name
+    
+    if not script_path.exists():
+        # Rebanker not installed yet
+        if "metadata" not in env:
+            env["metadata"] = {}
+        env["metadata"]["rebanker_result"] = {
+            "status": "rebanker_not_found",
+            "script": str(script_path)
+        }
+        return env
+    
+    # Run rebanker
+    try:
+        if language.lower() == "python":
+            cmd = [sys.executable, str(script_path), file_path, "--quiet"]
+        elif language.lower() in ("javascript", "typescript"):
+            cmd = ["node", str(script_path), file_path, f"--mode={language.lower()[:2]}"]
+        elif language.lower() == "php":
+            cmd = ["php", str(script_path), file_path]
+        else:
+            cmd = [sys.executable, str(script_path), file_path]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        # Parse JSON output
+        output = result.stdout.strip()
+        if output:
+            import json as _json
+            rebanker_data = _json.loads(output)
+        else:
+            rebanker_data = {"status": "no_output"}
+        
+        # Attach to envelope metadata
+        if "metadata" not in env:
+            env["metadata"] = {}
+        env["metadata"]["rebanker_result"] = rebanker_data
+        
+        # Also update errorsDetected in trendMetadata if error found
+        if "line" in rebanker_data and rebanker_data.get("line") is not None:
+            # This is an error result (has line number)
+            # Note: rebanker returns FIRST error only; for full count you'd need to parse all
+            # For now we just flag that errors exist
+            if "trendMetadata" in env:
+                # Don't override if already set by analyzer
+                pass
+            else:
+                env["trendMetadata"] = {
+                    "errorsDetected": 1,  # At least one error
+                    "errorsResolved": 0,
+                    "errorTrend": "unknown"
+                }
+        
+        return env
+        
+    except subprocess.TimeoutExpired:
+        if "metadata" not in env:
+            env["metadata"] = {}
+        env["metadata"]["rebanker_result"] = {
+            "status": "timeout",
+            "file": file_path
+        }
+        return env
+    except Exception as e:
+        if "metadata" not in env:
+            env["metadata"] = {}
+        env["metadata"]["rebanker_result"] = {
+            "status": "error",
+            "message": str(e)
+        }
+        return env
+
 # Stable JSON (sorted keys, no whitespace differences)
 import json as _json
 
@@ -227,5 +350,6 @@ __all__ = [
     "set_envelope_hash",
     "update_counters",
     "add_timeline_entry",
+    "run_rebanker",
     "as_envelope_dict",
 ]
