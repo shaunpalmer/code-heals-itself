@@ -779,16 +779,18 @@ body.is-busy button {
 }
 
 .settings-feedback {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   border-radius: 8px;
   font-size: 0.95rem;
   font-weight: 500;
+  min-height: 30px;
   display: none;
   animation: slideIn 0.3s ease;
 }
 
 .settings-feedback.show {
-  display: block;
+  display: flex;
+  align-items: center;
 }
 
 .settings-feedback.success {

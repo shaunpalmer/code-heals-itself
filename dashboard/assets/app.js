@@ -1514,9 +1514,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     function showFeedback(message, type = 'info') {
       settingsFeedback.textContent = message;
       settingsFeedback.className = `settings-feedback ${type} show`;
-      setTimeout(() => {
-        settingsFeedback.classList.remove('show');
-      }, 5000);
     }
 
     // Load settings from backend

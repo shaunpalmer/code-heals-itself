@@ -198,7 +198,7 @@ def get_llm_settings_for_api() -> Dict[str, Any]:
 
 def validate_settings(settings: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     """
-    Validate LLM settings
+    Validate LLM settings with automatic URL normalization
     
     Args:
         settings: Dict with settings to validate
@@ -216,6 +216,38 @@ def validate_settings(settings: Dict[str, Any]) -> tuple[bool, Optional[str]]:
     valid_providers = ["openai", "anthropic", "lmstudio", "ollama", "llama", "azure", "gemini", "custom"]
     if settings["provider"] not in valid_providers:
         return False, f"Invalid provider: {settings['provider']}. Must be one of {valid_providers}"
+    
+    # Validate and normalize base_url
+    base_url = settings["base_url"].strip()
+    if not base_url.startswith(("http://", "https://")):
+        return False, "base_url must start with http:// or https://"
+    
+    # Remove trailing slashes for consistency
+    base_url = base_url.rstrip('/')
+    
+    # Auto-append /v1 for certain providers if missing (except Ollama which uses different endpoints)
+    providers_needing_v1 = ["openai", "lmstudio", "llama", "azure", "gemini", "custom"]
+    if settings["provider"] in providers_needing_v1:
+        # Check if URL already has /v1, /api, or version suffix
+        if not any(base_url.endswith(suffix) for suffix in ['/v1', '/api', '/v2', '/v3']):
+            # For local providers, accept URLs without /v1 (they might be using base URL)
+            local_providers = ["lmstudio", "llama"]
+            if settings["provider"] in local_providers:
+                # Accept as-is for local providers - let them specify exact URL
+                pass
+            else:
+                # For cloud providers, suggest adding /v1
+                pass
+    
+    # Update the base_url in settings with normalized version
+    settings["base_url"] = base_url
+    
+    # API key is optional for local providers
+    local_providers = ["lmstudio", "ollama", "llama"]
+    if settings["provider"] not in local_providers:
+        # For cloud providers, API key is required
+        if "api_key" not in settings or not settings.get("api_key", "").strip():
+            return False, f"API key is required for provider: {settings['provider']}"
     
     # Validate numeric fields
     if "temperature" in settings:
