@@ -2,6 +2,18 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CodeErrorAnalyzer = void 0;
 const confidence_scoring_1 = require("./confidence_scoring");
+/**
+ * @deprecated This class is being replaced by the re-banker system for faster, more accurate error detection.
+ *
+ * The re-banker uses native compilers (node --check, tsc --noEmit) which are ~4x faster (~100ms vs ~500ms)
+ * and more accurate than regex-based analysis. This class is kept for:
+ * - Backward compatibility with existing tests
+ * - Extensions that subclass it (ExtendedCodeErrorAnalyzer)
+ * - Fallback scenarios where re-banker is unavailable
+ *
+ * TODO: Migrate extensions and tests to use re-banker, then remove this class.
+ * See: ops/rebank/rebank_js_ts.mjs for the replacement implementation.
+ */
 class CodeErrorAnalyzer {
     /**
      * Analyze code and return error count and types

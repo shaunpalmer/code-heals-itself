@@ -725,15 +725,34 @@ export class AIDebugger {
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       // Record the start of an attempt as a user message for conversation continuity
+      // Include re-banker structured error info from previous attempt if available
       try {
-        chat.addMessage('user', {
+        const userMessage: any = {
           type: 'attempt.start',
           attempt,
           error_type,
           message,
           last_patch: currentPatch,
           language: 'typescript'
-        }, { phase: 'attempt' });
+        };
+
+        // On retry attempts, include structured re-banker error from previous envelope
+        if (attempt > 1 && result?.envelope?.metadata) {
+          const prevRebanker = (result.envelope.metadata as any)?.rebanker_result;
+          if (prevRebanker && prevRebanker.line !== null) {
+            userMessage.rebanker_previous = {
+              file: prevRebanker.file,
+              line: prevRebanker.line,
+              column: prevRebanker.column,
+              error_code: prevRebanker.code,
+              error_message: prevRebanker.message,
+              severity: prevRebanker.severity,
+              hint: `Previous patch failed at line ${prevRebanker.line}${prevRebanker.column ? `, column ${prevRebanker.column}` : ''}: ${prevRebanker.message}`
+            };
+          }
+        }
+
+        chat.addMessage('user', userMessage, { phase: 'attempt' });
       } catch { /* ignore chat errors */ }
 
       result = this.process_error(
