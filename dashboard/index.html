@@ -21,6 +21,7 @@
             <li><button class="nav-link" data-view-target="envelopes">Envelopes</button></li>
             <li><button class="nav-link" data-view-target="extensions">Extensions</button></li>
             <li><button class="nav-link" data-view-target="heartbeat">Heartbeat</button></li>
+            <li><button class="nav-link" data-view-target="testing">Testing</button></li>
           </ul>
         </nav>
       </aside>
@@ -59,6 +60,7 @@
                 />
 
                 <div class="button-row">
+                  <button type="button" data-action="refresh-all">🔄 Refresh All Data</button>
                   <button type="button" data-action="refresh-metrics">Refresh Metrics</button>
                   <button type="button" data-action="pull-envelope">Fetch Latest Envelope</button>
                   <button type="button" data-action="trigger-heal">Trigger Heal Cycle</button>
@@ -121,6 +123,87 @@
             </details>
           </section>
         </section>
+
+        <section class="view" data-view="testing" aria-label="API testing playground">
+          <section class="panel">
+            <details open>
+              <summary>API Testing Playground</summary>
+              <div class="testing-controls">
+                <div class="form-group">
+                  <label for="test-endpoint">Endpoint</label>
+                  <select id="test-endpoint" class="test-select">
+                    <option value="/status/metrics">GET /status/metrics</option>
+                    <option value="/envelopes/latest">GET /envelopes/latest</option>
+                    <option value="/status/heartbeat">POST /status/heartbeat</option>
+                    <option value="/debug/run">POST /debug/run</option>
+                    <option value="/extensions/eslint-enhanced-runner/enable">POST /extensions/.../enable</option>
+                    <option value="/extensions/eslint-enhanced-runner/disable">POST /extensions/.../disable</option>
+                    <option value="custom">Custom URL...</option>
+                  </select>
+                </div>
+
+                <div class="form-group" id="custom-url-group" style="display: none;">
+                  <label for="custom-endpoint">Custom Endpoint Path</label>
+                  <input 
+                    id="custom-endpoint" 
+                    type="text" 
+                    placeholder="/your/custom/path"
+                    autocomplete="off"
+                  />
+                </div>
+
+                <div class="form-group">
+                  <label for="test-method">Method</label>
+                  <select id="test-method" class="test-select">
+                    <option value="GET">GET</option>
+                    <option value="POST">POST</option>
+                    <option value="PUT">PUT</option>
+                    <option value="DELETE">DELETE</option>
+                  </select>
+                  <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: var(--muted);">
+                    💡 <strong>Tip:</strong> If the endpoint label shows POST/PUT/DELETE, make sure to select the matching method above.
+                  </p>
+                </div>
+
+                <div class="form-group">
+                  <label for="test-body">Request Body (JSON)</label>
+                  <textarea 
+                    id="test-body" 
+                    rows="6" 
+                    placeholder='{"key": "value"}'
+                    class="test-textarea"
+                  ></textarea>
+                </div>
+
+                <div class="button-row">
+                  <button type="button" id="run-test" class="primary">▶ Run Test</button>
+                  <button type="button" id="clear-test">Clear Results</button>
+                </div>
+              </div>
+              <p class="hint">
+                Test API endpoints live. Results appear below with full request/response details.
+              </p>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>Test Results</summary>
+              <div id="test-results" class="test-results">
+                <p class="hint">Run a test to see results here...</p>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>Request/Response History</summary>
+              <ul id="test-history" class="test-history">
+                <li class="hint">No test history yet</li>
+              </ul>
+            </details>
+          </section>
+        </section>
       </main>
     </div>
 
@@ -160,6 +243,6 @@
       </li>
     </template>
 
-    <script src="assets/app.js" type="module"></script>
+    <script src="assets/app.js"></script>
   </body>
 </html>

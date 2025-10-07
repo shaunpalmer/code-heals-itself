@@ -34,6 +34,11 @@ import argparse
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
+# Add parent directory to path for rebanker imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+
+from rebanker.classify import classify_lines, load_taxonomy
+
 
 # Regex patterns for Python error messages
 # Format 1: SyntaxError with file, line, and context
@@ -55,6 +60,54 @@ GENERIC_ERROR_RE = re.compile(
 
 # Column indicator pattern (the ^ pointer)
 COLUMN_INDICATOR_RE = re.compile(r'^\s+(\^+)\s*$', re.MULTILINE)
+
+
+def enrich_with_taxonomy(error: Optional[Dict[str, Any]], lang: str = "py") -> Optional[Dict[str, Any]]:
+    """Merge taxonomy data (severity, difficulty, cluster) into an error dict."""
+    if not error:
+        return error
+
+    taxonomy = load_taxonomy()
+    classified = classify_lines([error.get("message", "")], lang, taxonomy)
+    classified_errors = classified.get("errors", [])
+    defaults = taxonomy.get("defaults", {})
+    default_severity = defaults.get("severity", {})
+
+    if classified_errors:
+        ranked = classified_errors[0]
+        error["code"] = ranked.get("code", error.get("code", "UNK.UNKNOWN"))
+        error["severity"] = ranked.get("severity", {
+            "label": default_severity.get("label", "ERROR"),
+            "score": default_severity.get("score", 0.6),
+        })
+        error["difficulty"] = ranked.get("difficulty", defaults.get("difficulty", 0.5))
+        error["cluster_id"] = ranked.get("cluster_id", error.get("cluster_id"))
+        error["hint"] = ranked.get("hint", error.get("hint"))
+        error["confidence"] = ranked.get("confidence", defaults.get("confidence", 0.5))
+    else:
+        error.setdefault("code", "UNK.UNKNOWN")
+        error["severity"] = {
+            "label": default_severity.get("label", "ERROR"),
+            "score": default_severity.get("score", 0.6),
+        }
+        error["difficulty"] = defaults.get("difficulty", 0.5)
+        error["cluster_id"] = error.get("cluster_id") or error["code"]
+        error["hint"] = error.get("hint") or "Review raw diagnostic; no taxonomy match."
+        error["confidence"] = defaults.get("confidence", 0.5)
+
+    # Normalize numeric precision for stability
+    if isinstance(error.get("difficulty"), (float, int)):
+        error["difficulty"] = round(float(error["difficulty"]), 2)
+    if isinstance(error.get("confidence"), (float, int)):
+        error["confidence"] = round(float(error["confidence"]), 2)
+    if isinstance(error.get("severity"), dict):
+        error["severity"]["score"] = round(float(error["severity"].get("score", 0.6)), 2)
+    elif isinstance(error.get("severity"), str):
+        error["severity"] = {
+            "label": error["severity"],
+            "score": round(float(default_severity.get("score", 0.6)), 2),
+        }
+    return error
 
 
 def parse_py_compile_stderr(stderr: str, default_file: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -88,14 +141,14 @@ def parse_py_compile_stderr(stderr: str, default_file: Optional[str] = None) -> 
             pointer_line = column_match.group(0)
             column = len(pointer_line) - len(pointer_line.lstrip())
         
-        return {
+        return enrich_with_taxonomy({
             "file": file_path,
             "line": line,
             "column": column,
             "message": f"{error_type}: {message}",
             "code": "PY_SYNTAX",
             "severity": "FATAL_SYNTAX"
-        }
+        })
     
     # Try generic error pattern (runtime errors, tracebacks)
     match = GENERIC_ERROR_RE.search(stderr)
@@ -113,25 +166,25 @@ def parse_py_compile_stderr(stderr: str, default_file: Optional[str] = None) -> 
             pointer_line = column_match.group(0)
             column = len(pointer_line) - len(pointer_line.lstrip())
         
-        return {
+        return enrich_with_taxonomy({
             "file": file_path,
             "line": line,
             "column": column,
             "message": message,
             "code": "PY_RUNTIME",
             "severity": "FATAL_RUNTIME"
-        }
+        })
     
     # Fallback: unparseable error
     if default_file:
-        return {
+        return enrich_with_taxonomy({
             "file": default_file,
             "line": None,
             "column": None,
             "message": f"Unparseable Python error in {default_file}. Raw output: {stderr.strip()[:200]}",
             "code": "PY_UNPARSED",
             "severity": "FATAL_SYNTAX"
-        }
+        })
     
     return None
 
@@ -147,14 +200,14 @@ def check_syntax(file_path: Path) -> Optional[Dict[str, Any]]:
         Error dict if syntax error found, None if clean
     """
     if not file_path.exists():
-        return {
+        return enrich_with_taxonomy({
             "file": str(file_path),
             "line": None,
             "column": None,
             "message": f"File not found: {file_path} (check path or file was deleted)",
             "code": "PY_FILE_NOT_FOUND",
             "severity": "FATAL_SYNTAX"
-        }
+        })
     
     try:
         result = subprocess.run(
@@ -172,23 +225,23 @@ def check_syntax(file_path: Path) -> Optional[Dict[str, Any]]:
         return error
         
     except subprocess.TimeoutExpired:
-        return {
+        return enrich_with_taxonomy({
             "file": str(file_path),
             "line": None,
             "column": None,
             "message": f"Syntax check timed out after 10s on {file_path} (file too large or infinite loop in parser?)",
             "code": "PY_TIMEOUT",
             "severity": "FATAL_SYNTAX"
-        }
+        })
     except Exception as e:
-        return {
+        return enrich_with_taxonomy({
             "file": str(file_path),
             "line": None,
             "column": None,
             "message": f"Syntax check failed for {file_path}: {str(e)} (check Python installation or file permissions)",
             "code": "PY_CHECK_FAILED",
             "severity": "FATAL_SYNTAX"
-        }
+        })
 
 
 def main():

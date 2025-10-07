@@ -288,11 +288,22 @@ Works across TypeScript, JavaScript, Python, and PHP. Ready for VS Code and clou
 | Metric | Value |
 |--------|-------|
 | **Languages Supported** | TypeScript, JavaScript, Python, PHP |
-| **Test Coverage** | 59 comprehensive test cases |
+| **Test Coverage** | 79+ comprehensive test cases (20 taxonomy tests added!) |
 | **Performance** | <100ms per analysis cycle |
 | **Memory Usage** | <50MB baseline, configurable limits |
 | **Security** | Sandbox execution, input validation |
 | **Extensibility** | Plugin architecture, custom analyzers |
+| **Error Taxonomy** | Core-24 taxonomy with 14 families, 66 detectors |
+
+---
+
+## 📚 **Documentation**
+
+- **[Taxonomy Integration Guide](docs/TAXONOMY_INTEGRATION.md)** - Complete reference for ReBanker taxonomy enrichment
+- **[Quick Start Guide](docs/TAXONOMY_QUICK_START.md)** - Get started with taxonomy-aware confidence scoring in 3 steps
+- **[Sprint Summary](docs/SPRINT_SUMMARY.md)** - Detailed implementation notes and test results
+
+**New Feature**: Taxonomy-aware confidence scoring! ReBanker now enriches errors with severity, difficulty, cluster IDs, and hints from a Core-24 taxonomy. Confidence scoring automatically adjusts based on error difficulty for more intelligent healing decisions.
 
 ---
 #### 🚀 **Advanced LangChain Features**

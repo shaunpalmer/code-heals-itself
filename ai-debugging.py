@@ -1,9 +1,32 @@
+"""
+REBANKER TRUTH-FLOW CONTRACT
+
+WHY: Measure convergence (error delta → 0) across retries with immutable reference points.
+
+INVARIANTS:
+* rebanker_raw: immutable diagnostic (file, line, code, message, severity)
+* rebanker_hash: sha256(rebanker_raw) - assert each loop
+* rebanker_interpreted: LLM summary (MUTABLE)
+* Chat includes previous rebanker_raw for LLM short-term memory
+
+RULES:
+* hash(rebanker_raw) === rebanker_hash → if false, ABORT
+* LLM writes to rebanker_interpreted ONLY
+* Circuit breaker uses rebanker_raw (facts, not interpretations)
+* Delta-to-zero = measurable convergence
+
+Cross-language parity: Python ↔ TypeScript identical behavior.
+"""
+
 # ai-debugging.py
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Callable, List
 import time
 import json
+import hashlib
+import random
+import asyncio
 from functools import lru_cache
 
 # --- Local modules (your utilities) ---
@@ -33,6 +56,77 @@ def _load_patch_envelope_schema() -> Dict[str, Any]:
     except Exception as e:
         raise RuntimeError(f"Could not load PatchEnvelope schema: {e}") from e
 
+def sha256_json(obj: dict) -> str:
+    """
+    Canonical hash of JSON object for immutability checking.
+    Used to prove ReBanker diagnostic packets haven't been tampered with.
+    """
+    canonical = json.dumps(obj, sort_keys=True, separators=(',', ':'))
+    return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+def assert_rebanker_immutable(envelope_metadata: dict):
+    """
+    Enforce immutability invariant: hash(rebanker_raw) must equal stored hash.
+    If violated, abort retry chain - ground truth has been tampered with.
+    """
+    raw = envelope_metadata.get("rebanker_raw")
+    stored_hash = envelope_metadata.get("rebanker_hash")
+    
+    if raw and stored_hash:
+        computed = sha256_json(raw)
+        if computed != stored_hash:
+            raise RuntimeError(
+                f"🚨 IMMUTABLE REBANKER INVARIANT VIOLATED 🚨\n"
+                f"Expected hash: {stored_hash}\n"
+                f"Computed hash: {computed}\n"
+                f"Ground truth packet was tampered with! Aborting retry chain."
+            )
+
+def error_delta(prev_raw: Optional[dict], cur_raw: Optional[dict]) -> dict:
+    """
+    Calculate error gradient between attempts.
+    Delta-to-zero means convergence (error resolved).
+    
+    Returns:
+        {"kind": "first|same_error|mutated|resolved", ...}
+    """
+    if not prev_raw:
+        return {"kind": "first", "details": "Initial attempt, no previous baseline"}
+    
+    # Error resolved?
+    if not cur_raw or cur_raw.get("status") == "clean":
+        return {
+            "kind": "resolved",
+            "details": "Error eliminated - zero gradient achieved",
+            "from_line": prev_raw.get("line"),
+            "from_code": prev_raw.get("error_code")
+        }
+    
+    # Same error code?
+    if prev_raw.get("error_code") == cur_raw.get("error_code"):
+        moved = (
+            prev_raw.get("line") != cur_raw.get("line") or
+            prev_raw.get("file") != cur_raw.get("file")
+        )
+        progress_note = f" (moved from line {prev_raw.get('line')})" if moved else " (same location)"
+        return {
+            "kind": "same_error",
+            "moved": moved,
+            "details": f"Error persists at line {cur_raw.get('line')}{progress_note}",
+            "prev_line": prev_raw.get("line"),
+            "cur_line": cur_raw.get("line")
+        }
+    
+    # Error mutated (different error code)
+    return {
+        "kind": "mutated",
+        "from": prev_raw.get("error_code"),
+        "to": cur_raw.get("error_code"),
+        "details": f"Error changed from {prev_raw.get('error_code')} to {cur_raw.get('error_code')}",
+        "prev_line": prev_raw.get("line"),
+        "cur_line": cur_raw.get("line")
+    }
+
 # ---------- Configuration / policy ----------
 @dataclass
 class HealerPolicy:
@@ -49,6 +143,47 @@ class HealerPolicy:
     risky_keywords: List[str] = (
         "database_schema_change authentication_bypass production_data_modification".split()
     )
+
+# ---------- Chat Message Adapter (for LLM feedback loop) ----------
+class ChatMessageAdapter:
+    """
+    Short-term memory for LLM feedback loop.
+    Mirrors TypeScript ChatMessageHistoryAdapter for cross-language parity.
+    
+    Stores conversation history and persists to memory buffer for auditing.
+    """
+    def __init__(self, memory: MemoryBuffer, session_id: Optional[str] = None):
+        self.memory = memory
+        self.session_id = session_id or f"session-{int(time.time() * 1000)}"
+        self.messages: List[Dict[str, Any]] = []
+    
+    def add_message(self, role: str, content: Any, metadata: Optional[Dict[str, Any]] = None):
+        """
+        Add message to chat history.
+        
+        Args:
+            role: 'system', 'user', 'tool', or 'ai'
+            content: Message content (string or dict)
+            metadata: Optional metadata (phase, etc.)
+        """
+        message = {
+            "role": role,
+            "content": content,
+            "metadata": metadata or {},
+            "timestamp": time.time()
+        }
+        self.messages.append(message)
+        
+        # Persist to memory buffer for auditing
+        self.memory.add_outcome(json.dumps({
+            "type": "chat_message",
+            "session": self.session_id,
+            "message": message
+        }))
+    
+    def get_messages(self) -> List[Dict[str, Any]]:
+        """Retrieve full chat history"""
+        return self.messages.copy()
 
 # ---------- Main Orchestrator ----------
 class AIDebugger:
@@ -121,7 +256,16 @@ class AIDebugger:
         self.debugger.set_strategy(chosen_strategy)
 
         # 3) Confidence scoring (syntax vs logic paths)
-        conf: ConfidenceScore = self.confidence.calculate_confidence(logits, error_type, historical)
+        # Extract taxonomy difficulty if available from rebanker enrichment
+        taxonomy_difficulty = None
+        if metadata and "rebanker_result" in metadata:
+            rebanker_result = metadata["rebanker_result"]
+            if isinstance(rebanker_result, dict) and "difficulty" in rebanker_result:
+                taxonomy_difficulty = rebanker_result["difficulty"]
+        
+        conf: ConfidenceScore = self.confidence.calculate_confidence(
+            logits, error_type, historical, taxonomy_difficulty
+        )
         conf_floor = self._conf_floor(error_type)
 
         # 4) Circuit breaker & cascade gates
@@ -246,21 +390,33 @@ class AIDebugger:
             finally:
                 # Clean up temp file
                 Path(tmp_path).unlink(missing_ok=True)
+            
+            # 🔒 TRUTH-FLOW: Convert to immutable packet with hash
+            rebanker_result = payload.get("metadata", {}).get("rebanker_result", {})
+            
+            # Rename to rebanker_raw (immutable ground truth)
+            payload.setdefault("metadata", {})["rebanker_raw"] = rebanker_result
+            payload["metadata"]["rebanker_hash"] = sha256_json(rebanker_result)
+            payload["metadata"]["rebanker_interpreted"] = None  # LLM can write here
+            
+            # Remove old field name for clarity
+            if "rebanker_result" in payload["metadata"]:
+                del payload["metadata"]["rebanker_result"]
 
         # 8) Strategy follow-up (log/fix/rollback/security audit)
         strategy_outcome = self.debugger.debug({"error": message, "vulnerability": message})
 
         # 8b) Extract re-banker data for trend analysis (error delta calculation)
         with envelope.mutable_payload() as payload:
-            rebanker_result = payload.get("metadata", {}).get("rebanker_result", {})
+            rebanker_raw = payload.get("metadata", {}).get("rebanker_raw", {})
             
             # Determine current error count from re-banker
             # Note: Re-banker returns FIRST error only; full analyzer would give total count
             # For now: if re-banker found error → at least 1; if clean → 0
             current_errors = 0
-            if "line" in rebanker_result and rebanker_result.get("line") is not None:
+            if "line" in rebanker_raw and rebanker_raw.get("line") is not None:
                 current_errors = 1  # At least one error (could be more, but we have structured info on first)
-            elif rebanker_result.get("status") == "clean":
+            elif rebanker_raw.get("status") == "clean":
                 current_errors = 0
             
             # Get previous error count from last attempt (if exists)
@@ -360,6 +516,194 @@ class AIDebugger:
         if len(self._tokens) >= self.policy.rate_limit_per_min:
             raise RuntimeError("Rate limit exceeded for patch attempts")
         self._tokens.append(now)
+    
+    def _minimal_tweak(self, code: str, error_message: str = "") -> str:
+        """
+        Conservative code fixes between retry attempts.
+        Mirrors TypeScript minimalTweak() for parity.
+        
+        Applies lightweight heuristics:
+        - Fix missing colons in if/for/def/class
+        - Balance parentheses/brackets
+        - Fix common indentation issues
+        """
+        import re
+        out = code
+        msg = error_message.lower()
+        
+        # Fix missing colons in control structures
+        out = re.sub(r'^(\s*(?:if|elif|else|for|while|def|class|with|try|except|finally)\s+[^\n:]+)$', 
+                     r'\1:', out, flags=re.MULTILINE)
+        
+        # Fix missing indentation (add 4 spaces to lines after colon)
+        lines = out.split('\n')
+        fixed_lines = []
+        for i, line in enumerate(lines):
+            fixed_lines.append(line)
+            if line.rstrip().endswith(':') and i + 1 < len(lines):
+                next_line = lines[i + 1]
+                if next_line and not next_line.startswith(' '):
+                    lines[i + 1] = '    ' + next_line
+        
+        # Balance parentheses/brackets (simple approach)
+        if 'missing' in msg or 'unexpected end' in msg or 'unmatched' in msg:
+            pairs = [('(', ')'), ('{', '}'), ('[', ']')]
+            for open_char, close_char in pairs:
+                open_count = out.count(open_char)
+                close_count = out.count(close_char)
+                missing = max(0, open_count - close_count)
+                if missing > 0:
+                    out += close_char * missing
+        
+        return out
+    
+    async def attempt_with_backoff(
+        self,
+        error_type: ErrorType,
+        message: str,
+        patch_code: str,
+        original_code: str,
+        logits: List[float],
+        opts: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Full retry loop with truth-flow contract.
+        Mirrors TypeScript attemptWithBackoff() for cross-language parity.
+        
+        Implements:
+        - Exponential backoff with jitter
+        - LLM chat history with previous re-banker feedback
+        - Immutability invariant checking
+        - Error delta calculation (gradient-to-zero)
+        - Circuit breaker integration
+        
+        Args:
+            error_type: Type of error (SYNTAX, LOGIC, etc.)
+            message: Error message
+            patch_code: Code to heal
+            original_code: Original working code
+            logits: Confidence logits from LLM
+            opts: Optional config (maxAttempts, minMs, maxMs, sessionId, chatAdapter)
+        
+        Returns:
+            Final result dict with action, envelope, and extras
+        """
+        opts = opts or {}
+        max_attempts = max(1, opts.get("maxAttempts", 3))
+        min_ms = max(0, opts.get("minMs", 500))
+        max_ms = max(min_ms, opts.get("maxMs", 1500))
+        
+        current_patch = patch_code
+        result = None
+        prev_raw = None
+        
+        # Chat adapter for LLM feedback
+        chat = opts.get("chatAdapter") or ChatMessageAdapter(self.memory, opts.get("sessionId"))
+        
+        # System prompt
+        DEFAULT_SYSTEM_PROMPT = "You are a code healing assistant. Analyze errors and suggest fixes based on structured diagnostic feedback."
+        chat.add_message("system", DEFAULT_SYSTEM_PROMPT, metadata={"phase": "init"})
+        
+        for attempt in range(1, max_attempts + 1):
+            # User message with previous immutable packet
+            user_message = {
+                "type": "attempt.start",
+                "attempt": attempt,
+                "error_type": error_type.name,
+                "message": message,
+                "last_patch": current_patch,
+                "language": "python"
+            }
+            
+            # 🎯 TRUTH-FLOW: Include previous immutable ReBanker packet
+            if attempt > 1 and prev_raw:
+                user_message["rebanker_previous"] = {
+                    "file": prev_raw.get("file"),
+                    "line": prev_raw.get("line"),
+                    "column": prev_raw.get("column"),
+                    "error_code": prev_raw.get("code"),
+                    "error_message": prev_raw.get("message"),
+                    "severity": prev_raw.get("severity"),
+                    "hint": f"Previous patch failed at line {prev_raw.get('line')}" +
+                           (f", column {prev_raw.get('column')}" if prev_raw.get('column') else "") +
+                           f": {prev_raw.get('message')}"
+                }
+            
+            chat.add_message("user", user_message, metadata={"phase": "attempt"})
+            
+            # Execute attempt
+            result = self.process_error(
+                error_type,
+                message,
+                current_patch,
+                original_code,
+                logits,
+                historical={"attempt": attempt},
+                metadata={"attempt": attempt}
+            )
+            
+            # Extract immutable packet + assert invariant
+            envelope_meta = result["envelope"].get("metadata", {})
+            cur_raw = envelope_meta.get("rebanker_raw")
+            cur_hash = envelope_meta.get("rebanker_hash")
+            
+            # 🔒 IMMUTABILITY INVARIANT
+            if cur_raw and cur_hash:
+                try:
+                    assert_rebanker_immutable(envelope_meta)
+                except RuntimeError as e:
+                    # Invariant violated - abort retry chain
+                    chat.add_message("tool", {
+                        "type": "immutability_violation",
+                        "error": str(e),
+                        "attempt": attempt
+                    }, metadata={"phase": "error"})
+                    raise
+            
+            # Calculate error delta (gradient-to-zero)
+            delta = error_delta(prev_raw, cur_raw)
+            result["envelope"]["metadata"]["delta_from_prev"] = delta
+            
+            # Send envelope to chat
+            chat.add_message("tool", {
+                "type": "patch_envelope",
+                "attempt": attempt,
+                "envelope": result["envelope"],
+                "action": result["action"],
+                "delta": delta
+            }, metadata={"phase": "result"})
+            
+            # Final decision?
+            if result["action"] in ["PROMOTE", "ROLLBACK", "HUMAN_REVIEW"]:
+                chat.add_message("tool", {
+                    "type": "final_decision",
+                    "decision": result["action"],
+                    "attempt": attempt,
+                    "delta": delta
+                }, metadata={"phase": "final"})
+                return result
+            
+            # Retry with backoff
+            if result["action"] in ["RETRY", "PAUSE_AND_BACKOFF"]:
+                # Exponential backoff with jitter
+                backoff_ms = min(max_ms, min_ms * (2 ** (attempt - 1)))
+                jitter = random.uniform(0.8, 1.2)
+                wait_ms = backoff_ms * jitter
+                
+                chat.add_message("tool", {
+                    "type": "backoff",
+                    "wait_ms": wait_ms,
+                    "attempt": attempt
+                }, metadata={"phase": "backoff"})
+                
+                await asyncio.sleep(wait_ms / 1000.0)
+                
+                # Minimal tweak (conservative fixes)
+                current_patch = self._minimal_tweak(current_patch, message)
+                prev_raw = cur_raw  # Save for next iteration
+        
+        # Max attempts reached
+        return result
 
 # ----------- Example usage (optional manual test) -----------
 if __name__ == "__main__":

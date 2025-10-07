@@ -427,6 +427,171 @@ body.is-busy button {
   border: 1px solid rgba(77, 208, 225, 0.12);
 }
 
+/* Testing View Styles */
+.testing-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.test-select,
+.test-textarea,
+.form-group input[type="text"] {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(9, 15, 27, 0.76);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+}
+
+.test-textarea {
+  font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.test-select:focus,
+.test-textarea:focus,
+.form-group input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.test-results {
+  padding: 1rem;
+  border-radius: 8px;
+  background: rgba(9, 15, 27, 0.76);
+  border: 1px solid var(--border);
+  min-height: 200px;
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.test-result-item {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.test-result-item:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.test-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.test-result-status {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.test-result-status.success {
+  background: rgba(76, 175, 80, 0.2);
+  color: #81c784;
+}
+
+.test-result-status.error {
+  background: rgba(244, 67, 54, 0.2);
+  color: #e57373;
+}
+
+.test-result-timing {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.test-result-data {
+  margin-top: 0.75rem;
+}
+
+.test-result-data pre {
+  margin: 0.5rem 0 0;
+  padding: 1rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.test-history {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.test-history li {
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: rgba(9, 15, 27, 0.76);
+  border: 1px solid var(--border);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.test-history li:hover {
+  border-color: var(--accent);
+  background: rgba(9, 15, 27, 0.9);
+}
+
+.test-history-method {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-right: 0.5rem;
+}
+
+.test-history-method.GET {
+  background: rgba(33, 150, 243, 0.2);
+  color: #64b5f6;
+}
+
+.test-history-method.POST {
+  background: rgba(76, 175, 80, 0.2);
+  color: #81c784;
+}
+
+.test-history-method.PUT {
+  background: rgba(255, 152, 0, 0.2);
+  color: #ffb74d;
+}
+
+.test-history-method.DELETE {
+  background: rgba(244, 67, 54, 0.2);
+  color: #e57373;
+}
+
 @media (max-width: 600px) {
   .layout {
     grid-template-columns: 1fr;

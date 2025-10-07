@@ -1,0 +1,515 @@
+# ReBanker Core-24 taxonomy
+#
+# Each category entry carries:
+#   * code:        canonical identifier FAMILY.CATEGORY
+#   * description: human-readable summary
+#   * severity:    label + numeric score (0.0-1.0)
+#   * difficulty:  relative complexity to repair (0.0 easy → 1.0 hard)
+#   * hint:        short guidance for the planner/LLM
+#   * detectors:   regex/probe definitions per language (first match wins)
+#   * cluster_key: field extracted from captures used to group related errors
+#   * planner:     optional directives for the scheduling layer
+#
+# The schema is intentionally extensible; add new families/categories without
+# touching classifier code. Downstream logic should tolerate missing optional
+# keys (e.g., difficulty).
+
+version: 1
+defaults:
+  severity:
+    label: ERROR
+    score: 0.6
+  difficulty: 0.5
+  confidence: 0.5
+
+families:
+  - id: "SYN"
+    name: "Syntax / Parsing"
+    categories:
+      - id: "UNMATCHED_BRACE"
+        code: "SYN.UNMATCHED_BRACE"
+        description: "Structural token mismatch (brace, bracket, parenthesis)"
+        severity:
+          label: "FATAL_SYNTAX"
+          score: 0.9
+        difficulty: 0.2
+        hint: "Repair structural tokens so braces and parentheses balance."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "unexpected '}'"
+              - "unexpected end of input"
+              - "unmatched [)\\]\\}]"
+              - "expecting .* before '}'"
+              - "'[(\\[\\{]' was never closed"
+              - "unclosed.*paren"
+              - "missing.*[)\\]\\}]"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["block_heal"]
+          rails: ["edit_within_span_only", "restore_brace_parity"]
+      - id: "UNEXPECTED_TOKEN"
+        code: "SYN.UNEXPECTED_TOKEN"
+        description: "Parser encountered unexpected token"
+        severity:
+          label: "FATAL_SYNTAX"
+          score: 0.85
+        difficulty: 0.3
+        hint: "Check surrounding syntax for typos or missing keywords."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "unexpected token"
+              - "SyntaxError: invalid syntax"
+              - "Parse error: syntax error"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["block_heal", "precision"]
+      - id: "MISSING_COLON"
+        code: "SYN.MISSING_COLON"
+        description: "Python block missing colon terminator"
+        severity:
+          label: "FATAL_SYNTAX"
+          score: 0.8
+        difficulty: 0.2
+        hint: "Add ':' after control structures or function/class declarations."
+        detectors:
+          - langs: ["py"]
+            regex:
+              - "expected ':'"
+              - "invalid syntax \\(missing ':'\\)"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+          rails: ["preserve_existing_indent"]
+      - id: "MISSING_SEMICOLON"
+        code: "SYN.MISSING_SEMICOLON"
+        description: "Statement missing terminating semicolon"
+        severity:
+          label: "ERROR"
+          score: 0.6
+        difficulty: 0.2
+        hint: "Insert ';' at statement end."
+        detectors:
+          - langs: ["ts", "js", "php"]
+            regex:
+              - "';' expected"
+              - "missing ';' before"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+
+  - id: "RES"
+    name: "Name / Import / Resolve"
+    categories:
+      - id: "NAME_ERROR"
+        code: "RES.NAME_ERROR"
+        description: "Symbol or variable is undefined"
+        severity:
+          label: "ERROR"
+          score: 0.7
+        difficulty: 0.4
+        hint: "Declare or import the missing symbol."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "NameError: name '([^']+)' is not defined"
+              - "cannot find name '([^']+)'"
+              - "Undefined variable: ([A-Za-z_][A-Za-z0-9_]*)"
+              - "ReferenceError: ([A-Za-z_][A-Za-z0-9_]*) is not defined"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+          rails: ["prefer_callsite_fix"]
+      - id: "MODULE_NOT_FOUND"
+        code: "RES.MODULE_NOT_FOUND"
+        description: "Module or package import failed"
+        severity:
+          label: "FATAL_RUNTIME"
+          score: 0.85
+        difficulty: 0.5
+        hint: "Install or reference the missing module; check import path."
+        detectors:
+          - langs: ["py", "ts", "js"]
+            regex:
+              - "ModuleNotFoundError: No module named '([^']+)'"
+              - "cannot find module '([^']+)'"
+              - "Error: Cannot find module '([^']+)'"
+            capture: ["module"]
+        cluster_key: "module"
+        planner:
+          prefer: ["batch_if_count>=3", "precision"]
+
+  - id: "TYP"
+    name: "Type / Contract"
+    categories:
+      - id: "MISMATCH"
+        code: "TYP.MISMATCH"
+        description: "Argument, assignment, or return type mismatch"
+        severity:
+          label: "ERROR"
+          score: 0.7
+        difficulty: 0.6
+        hint: "Align declared types with actual values or update signatures."
+        detectors:
+          - langs: ["ts", "py"]
+            regex:
+              - "Type mismatch: expected .* got .*"
+              - "Argument of type '.*' is not assignable to parameter of type '.*'"
+              - "Incompatible types in assignment"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+      - id: "PROPERTY_MISSING"
+        code: "TYP.PROPERTY_MISSING"
+        description: "Property or attribute does not exist on target"
+        severity:
+          label: "ERROR"
+          score: 0.65
+        difficulty: 0.5
+        hint: "Add the missing property or guard access via public API."
+        detectors:
+          - langs: ["ts", "js", "py"]
+            regex:
+              - "Property '([^']+)' does not exist on type"
+              - "Object has no attribute '([^']+)'"
+              - "TypeError: Cannot read property '([^']+)' of undefined"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+          rails: ["prefer_callsite_fix", "avoid_visibility_escalation"]
+      - id: "ARG_COUNT"
+        code: "TYP.ARG_COUNT"
+        description: "Incorrect number of arguments provided"
+        severity:
+          label: "ERROR"
+          score: 0.6
+        difficulty: 0.4
+        hint: "Adjust callsite arguments to required arity."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "takes (\\d+) positional arguments but (\\d+) were given"
+              - "Expected \\d+ arguments, but got \\d+"
+              - "Too few arguments to function"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+
+  - id: "IO"
+    name: "Path / IO / Filesystem"
+    categories:
+      - id: "FILE_NOT_FOUND"
+        code: "IO.FILE_NOT_FOUND"
+        description: "File or resource missing at path"
+        severity:
+          label: "FATAL_IO"
+          score: 0.9
+        difficulty: 0.3
+        hint: "Ensure the file exists or update the path."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "No such file or directory: '([^']+)'"
+              - "ENOENT: no such file or directory, open '([^']+)'"
+              - "Cannot open file '([^']+)'"
+            capture: ["path"]
+        cluster_key: "path"
+        planner:
+          prefer: ["batch_if_count>=3", "precision"]
+      - id: "PERMISSION_DENIED"
+        code: "IO.PERMISSION_DENIED"
+        description: "Operation blocked by filesystem permissions"
+        severity:
+          label: "FATAL_IO"
+          score: 0.85
+        difficulty: 0.5
+        hint: "Adjust permissions or run with appropriate privileges."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "PermissionError: \\[Errno 13\\] Permission denied: '([^']+)'"
+              - "EACCES: permission denied, open '([^']+)'"
+            capture: ["path"]
+        cluster_key: "path"
+        planner:
+          prefer: ["precision"]
+      - id: "ENCODING_ERROR"
+        code: "IO.ENCODING_ERROR"
+        description: "Cannot decode/encode data with specified charset"
+        severity:
+          label: "ERROR"
+          score: 0.6
+        difficulty: 0.5
+        hint: "Use the correct encoding (e.g., UTF-8) or handle errors explicitly."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "UnicodeDecodeError"
+              - "'utf-8' codec can't decode"
+              - "character encoding not supported"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+
+  - id: "OOP"
+    name: "Visibility / Object Orientation"
+    categories:
+      - id: "PRIVATE_ACCESS"
+        code: "OOP.PRIVATE_ACCESS"
+        description: "Attempt to access private member"
+        severity:
+          label: "ERROR"
+          score: 0.7
+        difficulty: 0.6
+        hint: "Use an exposed method or adjust visibility within policy."
+        detectors:
+          - langs: ["ts", "js", "php"]
+            regex:
+              - "Property '([^']+)' is private and only accessible within class"
+              - "Cannot access private property"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+          rails: ["prefer_wrapper_over_visibility_change"]
+
+  - id: "ASY"
+    name: "Async / Concurrency"
+    categories:
+      - id: "AWAIT_MISSING"
+        code: "ASY.AWAIT_MISSING"
+        description: "Promise or coroutine result is unused"
+        severity:
+          label: "ERROR"
+          score: 0.65
+        difficulty: 0.5
+        hint: "Await the async call or handle the promise explicitly."
+        detectors:
+          - langs: ["ts", "js", "py"]
+            regex:
+              - "Promise returned in function but not awaited"
+              - "Coroutine '.*' was never awaited"
+              - "unused awaitable"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+      - id: "EVENT_LOOP_BLOCKED"
+        code: "ASY.EVENT_LOOP_BLOCKED"
+        description: "Long-running synchronous work detected in event loop"
+        severity:
+          label: "WARN"
+          score: 0.5
+        difficulty: 0.7
+        hint: "Move heavy work off the main loop or add awaits."
+        detectors:
+          - langs: ["ts", "js", "py"]
+            regex:
+              - "Event loop blocked"
+              - "Synchronous operation on event loop"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["batch_if_count>=2", "precision"]
+
+  - id: "STA"
+    name: "State / Initialization"
+    categories:
+      - id: "NULL_DEREF"
+        code: "STA.NULL_DEREF"
+        description: "Dereferenced null/undefined/None value"
+        severity:
+          label: "ERROR"
+          score: 0.7
+        difficulty: 0.5
+        hint: "Add guards or ensure object is initialized before use."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "AttributeError: 'NoneType' object has no attribute"
+              - "TypeError: Cannot read property '([^']+)' of undefined"
+              - "Attempt to call method on null"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+      - id: "UNINITIALIZED_FIELD"
+        code: "STA.UNINITIALIZED_FIELD"
+        description: "Class or struct field used before assignment"
+        severity:
+          label: "ERROR"
+          score: 0.65
+        difficulty: 0.6
+        hint: "Initialize field in constructor or guard access until set."
+        detectors:
+          - langs: ["ts", "js", "py"]
+            regex:
+              - "Property '([^']+)' has no initializer and is not definitely assigned"
+              - "Use of unassigned local variable"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+
+  - id: "SER"
+    name: "Serialization / Parsing"
+    categories:
+      - id: "JSON_PARSE"
+        code: "SER.JSON_PARSE"
+        description: "JSON parsing failure"
+        severity:
+          label: "ERROR"
+          score: 0.6
+        difficulty: 0.3
+        hint: "Validate JSON structure or handle malformed input."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "JSONDecodeError"
+              - "Unexpected token .* in JSON"
+              - "JSON parse error"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+
+  - id: "NET"
+    name: "Network / HTTP"
+    categories:
+      - id: "CONNECTION_TIMEOUT"
+        code: "NET.CONNECTION_TIMEOUT"
+        description: "Network operation exceeded timeout"
+        severity:
+          label: "WARN"
+          score: 0.5
+        difficulty: 0.4
+        hint: "Increase timeout or improve network resiliency."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "timeout of .*ms exceeded"
+              - "Connection timed out"
+              - "ETIMEDOUT"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["batch_if_count>=2", "precision"]
+
+  - id: "DB"
+    name: "Database / Query"
+    categories:
+      - id: "SQL_SYNTAX"
+        code: "DB.SQL_SYNTAX"
+        description: "SQL query syntax error"
+        severity:
+          label: "FATAL_RUNTIME"
+          score: 0.85
+        difficulty: 0.6
+        hint: "Correct the SQL statement syntax."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "syntax error at or near '([^']+)'"
+              - "SQLSTATE\\[42000\\]"
+              - "You have an error in your SQL syntax"
+            capture: ["token"]
+        cluster_key: "token"
+        planner:
+          prefer: ["precision"]
+
+  - id: "BLD"
+    name: "Build / Tooling / Dependencies"
+    categories:
+      - id: "MODULES_MISSING"
+        code: "BLD.MODULES_MISSING"
+        description: "Dependencies missing from environment"
+        severity:
+          label: "ERROR"
+          score: 0.65
+        difficulty: 0.4
+        hint: "Install dependencies (npm install / pip install)."
+        detectors:
+          - langs: ["ts", "js", "py"]
+            regex:
+              - "Cannot find module '([^']+)'"
+              - "ModuleNotFoundError"
+              - "Error: Cannot find module"
+            capture: ["module"]
+        cluster_key: "module"
+        planner:
+          prefer: ["batch_if_count>=3", "precision"]
+
+  - id: "CFG"
+    name: "Environment / Config"
+    categories:
+      - id: "ENV_MISSING"
+        code: "CFG.ENV_MISSING"
+        description: "Required environment variable not set"
+        severity:
+          label: "WARN"
+          score: 0.4
+        difficulty: 0.3
+        hint: "Define the missing environment variable or provide fallback."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "KeyError: '([A-Z0-9_]+)'"
+              - "Environment variable ([A-Z0-9_]+) not set"
+              - "process\\.env\\.([A-Z0-9_]+) is undefined"
+            capture: ["symbol"]
+        cluster_key: "symbol"
+        planner:
+          prefer: ["precision"]
+
+  - id: "PRF"
+    name: "Performance / Resource"
+    categories:
+      - id: "OOM"
+        code: "PRF.OOM"
+        description: "Out of memory condition"
+        severity:
+          label: "FATAL_RUNTIME"
+          score: 0.95
+        difficulty: 0.7
+        hint: "Stream data, release resources, or raise limits."
+        detectors:
+          - langs: ["ts", "js", "py", "php"]
+            regex:
+              - "MemoryError"
+              - "JavaScript heap out of memory"
+              - "OutOfMemoryError"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]
+
+  - id: "LOC"
+    name: "i18n / Encoding / Locale"
+    categories:
+      - id: "UNICODE_DECODE"
+        code: "LOC.UNICODE_DECODE"
+        description: "Unicode decode failure due to encoding mismatch"
+        severity:
+          label: "ERROR"
+          score: 0.55
+        difficulty: 0.4
+        hint: "Specify correct encoding or normalize input."
+        detectors:
+          - langs: ["py", "ts", "js", "php"]
+            regex:
+              - "UnicodeDecodeError"
+              - "invalid continuation byte"
+            capture: []
+        cluster_key: "code"
+        planner:
+          prefer: ["precision"]

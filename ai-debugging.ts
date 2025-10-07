@@ -74,6 +74,75 @@ import createEnhancedESLintRunner from "./src/extensions/eslint-enhanced-runner"
 // Stylelint integration (optional; reporter used for metadata only)
 import { createStylelintReporter } from "./src/extensions/stylelint-runner";
 
+/**
+ * REBANKER TRUTH-FLOW CONTRACT - Immutability Helpers
+ * 
+ * These functions enforce the truth-flow contract:
+ * - ReBanker diagnostics are immutable ground truth
+ * - Hash verification prevents tampering
+ * - Error delta calculation measures convergence
+ * 
+ * Cross-language parity: TypeScript ↔ Python identical behavior
+ */
+
+function sha256Json(obj: any): string {
+  const canonical = JSON.stringify(obj, Object.keys(obj).sort());
+  return crypto.createHash('sha256').update(canonical).digest('hex');
+}
+
+function assertRebankerImmutable(envelopeMetadata: any): void {
+  const raw = envelopeMetadata?.rebanker_raw;
+  const storedHash = envelopeMetadata?.rebanker_hash;
+
+  if (raw && storedHash) {
+    const computed = sha256Json(raw);
+    if (computed !== storedHash) {
+      throw new Error(
+        `🚨 IMMUTABLE REBANKER INVARIANT VIOLATED 🚨\n` +
+        `Expected hash: ${storedHash}\n` +
+        `Computed hash: ${computed}\n` +
+        `Ground truth packet was tampered with! Aborting retry chain.`
+      );
+    }
+  }
+}
+
+function errorDelta(prevRaw: any, curRaw: any): any {
+  if (!prevRaw) {
+    return { kind: 'first', details: 'Initial attempt, no previous baseline' };
+  }
+
+  if (!curRaw || curRaw.status === 'clean') {
+    return {
+      kind: 'resolved',
+      details: 'Error eliminated - zero gradient achieved',
+      from_line: prevRaw.line,
+      from_code: prevRaw.code
+    };
+  }
+
+  if (prevRaw.code === curRaw.code) {
+    const moved = prevRaw.line !== curRaw.line || prevRaw.file !== curRaw.file;
+    const progressNote = moved ? ` (moved from line ${prevRaw.line})` : ' (same location)';
+    return {
+      kind: 'same_error',
+      moved,
+      details: `Error persists at line ${curRaw.line}${progressNote}`,
+      prev_line: prevRaw.line,
+      cur_line: curRaw.line
+    };
+  }
+
+  return {
+    kind: 'mutated',
+    from: prevRaw.code,
+    to: curRaw.code,
+    details: `Error changed from ${prevRaw.code} to ${curRaw.code}`,
+    prev_line: prevRaw.line,
+    cur_line: curRaw.line
+  };
+}
+
 export interface HealerPolicy {
   syntax_conf_floor: number;
   logic_conf_floor: number;
@@ -236,7 +305,18 @@ export class AIDebugger {
     } catch { /* non-fatal: best-effort */ }
 
     // Populate schema-required fields
-    const conf: ConfidenceScore = this.scorer.calculate_confidence(logits, error_type, historical);
+    // Extract taxonomy difficulty if available from rebanker enrichment
+    let taxonomyDifficulty: number | null = null;
+    if (metadata && metadata.rebanker_result) {
+      const rebankerResult = metadata.rebanker_result;
+      if (typeof rebankerResult === 'object' && rebankerResult !== null && 'difficulty' in rebankerResult) {
+        taxonomyDifficulty = rebankerResult.difficulty;
+      }
+    }
+
+    const conf: ConfidenceScore = this.scorer.calculate_confidence(
+      logits, error_type, historical, taxonomyDifficulty
+    );
     mergeConfidence(envelope as unknown as MutableEnvelope, {
       syntax: conf.syntax_confidence,
       logic: conf.logic_confidence,
@@ -407,6 +487,22 @@ export class AIDebugger {
       console.warn(`[Re-banker] Integration error: ${e}`);
     }
 
+    // 🔒 TRUTH-FLOW: Convert to immutable packet with hash
+    try {
+      const rebankerResult = (envelope.metadata as any)?.rebanker_result;
+      if (rebankerResult) {
+        // Rename to rebanker_raw (immutable ground truth)
+        (envelope.metadata as any).rebanker_raw = rebankerResult;
+        (envelope.metadata as any).rebanker_hash = sha256Json(rebankerResult);
+        (envelope.metadata as any).rebanker_interpreted = null;  // LLM can write here
+
+        // Remove old field name for clarity
+        delete (envelope.metadata as any).rebanker_result;
+      }
+    } catch (e) {
+      console.warn(`[Truth-Flow] Failed to convert rebanker packet: ${e}`);
+    }
+
     // Update resource usage in envelope from sandbox after execution
     try {
       envelope.resourceUsage = (this.sandbox as any).getResourceUsage?.() || envelope.resourceUsage;
@@ -424,14 +520,14 @@ export class AIDebugger {
     const strat = this.debugger.debug({ error: message, vulnerability: message });
 
     // Extract re-banker results for error delta calculation (fast, already computed)
-    const rebankerResult = (envelope.metadata as any)?.rebanker_result || {};
+    const rebankerRaw = (envelope.metadata as any)?.rebanker_raw || {};
 
     // Determine current error count from re-banker (structured 5-field JSON)
     // Note: Re-banker returns FIRST error only; if line exists → at least 1 error
     let currentErrors = 0;
-    if (rebankerResult.line !== null && rebankerResult.line !== undefined) {
+    if (rebankerRaw.line !== null && rebankerRaw.line !== undefined) {
       currentErrors = 1; // At least one error (structured info on first)
-    } else if (rebankerResult.status === 'clean') {
+    } else if (rebankerRaw.status === 'clean') {
       currentErrors = 0;
     }
 

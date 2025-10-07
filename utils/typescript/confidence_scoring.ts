@@ -63,7 +63,8 @@ class UnifiedConfidenceScorer {
   calculate_confidence(
     logits: number[],
     error_type: ErrorType,
-    historical_data: Record<string, any> | null = null
+    historical_data: Record<string, any> | null = null,
+    taxonomyDifficulty: number | null = null
   ): ConfidenceScore {
     /**
      * Calculate confidence score using unified formula across all languages
@@ -71,6 +72,8 @@ class UnifiedConfidenceScorer {
      * @param logits Raw model outputs (before softmax)
      * @param error_type Type of error being addressed
      * @param historical_data Optional historical performance data
+     * @param taxonomyDifficulty Optional difficulty score from taxonomy (0.0-1.0)
+     *                          If provided, used for complexity penalty calculation
      * @returns ConfidenceScore
      */
 
@@ -85,8 +88,8 @@ class UnifiedConfidenceScorer {
     const syntax_confidence = this._calculate_syntax_confidence(probabilities, error_type);
     const logic_confidence = this._calculate_logic_confidence(probabilities, error_type);
 
-    // Calculate overall confidence with components
-    const components = this._calculate_components(probabilities, error_type, historical_data);
+    // Calculate overall confidence with components (pass taxonomy difficulty if available)
+    const components = this._calculate_components(probabilities, error_type, historical_data, taxonomyDifficulty);
     const overall_confidence = this._combine_confidences(
       syntax_confidence, logic_confidence, components, error_type
     );
@@ -147,9 +150,17 @@ class UnifiedConfidenceScorer {
   private _calculate_components(
     probabilities: number[],
     error_type: ErrorType,
-    historical_data: Record<string, any> | null
+    historical_data: Record<string, any> | null,
+    taxonomyDifficulty: number | null = null
   ): ConfidenceComponents {
-    /** Calculate confidence components based on various factors */
+    /** 
+     * Calculate confidence components based on various factors 
+     * 
+     * @param probabilities Softmax probabilities
+     * @param error_type Type of error being addressed
+     * @param historical_data Optional historical performance data
+     * @param taxonomyDifficulty Optional difficulty score from taxonomy (0.0-1.0)
+     */
 
     // Historical success rate
     let historical_success = 0.5; // Default neutral
@@ -165,7 +176,14 @@ class UnifiedConfidenceScorer {
 
     // Code complexity penalty
     let complexity_penalty = 1.0;
-    if (historical_data && historical_data.complexity_score !== undefined) {
+
+    // Taxonomy-aware complexity: use taxonomy difficulty if available
+    if (taxonomyDifficulty !== null) {
+      // Taxonomy difficulty is 0.0-1.0 scale where higher = harder
+      // Convert to penalty: easy errors (0.0) have minimal penalty, hard errors (1.0) have max penalty
+      complexity_penalty = Math.max(0.1, 1.0 - taxonomyDifficulty * 0.5);
+    } else if (historical_data && historical_data.complexity_score !== undefined) {
+      // Fallback to historical complexity score
       const complexity = historical_data.complexity_score;
       // Higher complexity reduces confidence
       complexity_penalty = Math.max(0.1, 1.0 - (complexity - 1.0) * 0.1);

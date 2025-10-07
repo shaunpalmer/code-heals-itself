@@ -87,7 +87,8 @@ class UnifiedConfidenceScorer {
     public function calculate_confidence(
         array $logits,
         string $error_type,
-        ?array $historical_data = null
+        ?array $historical_data = null,
+        ?float $taxonomyDifficulty = null
     ): ConfidenceScore {
         /**
          * Calculate confidence score using unified formula across all languages
@@ -95,6 +96,8 @@ class UnifiedConfidenceScorer {
          * @param array $logits Raw model outputs (before softmax)
          * @param string $error_type Type of error being addressed
          * @param array|null $historical_data Optional historical performance data
+         * @param float|null $taxonomyDifficulty Optional difficulty score from taxonomy (0.0-1.0)
+         *                                       If provided, used for complexity penalty calculation
          * @return ConfidenceScore
          */
 
@@ -111,8 +114,8 @@ class UnifiedConfidenceScorer {
         $syntax_confidence = $this->calculate_syntax_confidence($probabilities, $error_type);
         $logic_confidence = $this->calculate_logic_confidence($probabilities, $error_type);
 
-        // Calculate overall confidence with components
-        $components = $this->calculate_components($probabilities, $error_type, $historical_data);
+        // Calculate overall confidence with components (pass taxonomy difficulty if available)
+        $components = $this->calculate_components($probabilities, $error_type, $historical_data, $taxonomyDifficulty);
         $overall_confidence = $this->combine_confidences(
             $syntax_confidence, $logic_confidence, $components, $error_type
         );
@@ -175,9 +178,17 @@ class UnifiedConfidenceScorer {
     private function calculate_components(
         array $probabilities,
         string $error_type,
-        ?array $historical_data
+        ?array $historical_data,
+        ?float $taxonomyDifficulty = null
     ): ConfidenceComponents {
-        /** Calculate confidence components based on various factors */
+        /** 
+         * Calculate confidence components based on various factors 
+         * 
+         * @param array $probabilities Softmax probabilities
+         * @param string $error_type Type of error being addressed
+         * @param array|null $historical_data Optional historical performance data
+         * @param float|null $taxonomyDifficulty Optional difficulty score from taxonomy (0.0-1.0)
+         */
 
         // Historical success rate
         $historical_success = 0.5; // Default neutral
@@ -193,7 +204,14 @@ class UnifiedConfidenceScorer {
 
         // Code complexity penalty
         $complexity_penalty = 1.0;
-        if ($historical_data && isset($historical_data['complexity_score'])) {
+        
+        // Taxonomy-aware complexity: use taxonomy difficulty if available
+        if ($taxonomyDifficulty !== null) {
+            // Taxonomy difficulty is 0.0-1.0 scale where higher = harder
+            // Convert to penalty: easy errors (0.0) have minimal penalty, hard errors (1.0) have max penalty
+            $complexity_penalty = max(0.1, 1.0 - $taxonomyDifficulty * 0.5);
+        } elseif ($historical_data && isset($historical_data['complexity_score'])) {
+            // Fallback to historical complexity score
             $complexity = $historical_data['complexity_score'];
             // Higher complexity reduces confidence
             $complexity_penalty = max(0.1, 1.0 - ($complexity - 1.0) * 0.1);

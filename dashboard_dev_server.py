@@ -4,12 +4,22 @@ import time
 import os
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+
+# Enable CORS with explicit configuration for development
+CORS(app, resources={
+    r"/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "expose_headers": ["Content-Type"],
+        "supports_credentials": False
+    }
+})
 
 # Dashboard static files directory
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), 'dashboard')
 
-# Mock data
+# Mock data for development
 metrics = {
     "healingSuccess": 78,
     "breakerStatus": "steady",
@@ -60,7 +70,7 @@ def serve_assets(filename):
     assets_dir = os.path.join(DASHBOARD_DIR, 'assets')
     return send_from_directory(assets_dir, filename)
 
-# API endpoints
+# API endpoints for dashboard
 @app.route('/status/metrics', methods=['GET'])
 def get_metrics():
     return jsonify(metrics)
@@ -93,4 +103,7 @@ def disable_extension(id):
     return jsonify({"acknowledged": True})
 
 if __name__ == '__main__':
+    print("🚀 Starting Dashboard Development Server")
+    print("📊 Dashboard UI: http://127.0.0.1:5000")
+    print("🔌 API endpoints ready on port 5000")
     app.run(port=5000)

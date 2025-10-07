@@ -61,7 +61,8 @@ class UnifiedConfidenceScorer:
     def calculate_confidence(self,
                            logits: List[float],
                            error_type: ErrorType,
-                           historical_data: Optional[Dict[str, Any]] = None) -> ConfidenceScore:
+                           historical_data: Optional[Dict[str, Any]] = None,
+                           taxonomy_difficulty: Optional[float] = None) -> ConfidenceScore:
         """
         Calculate confidence score using unified formula across all languages
 
@@ -69,6 +70,8 @@ class UnifiedConfidenceScorer:
             logits: Raw model outputs (before softmax)
             error_type: Type of error being addressed
             historical_data: Optional historical performance data
+            taxonomy_difficulty: Optional difficulty score from taxonomy (0.0-1.0)
+                               If provided, used for complexity penalty calculation
 
         Returns:
             ConfidenceScore with calibrated confidence values
@@ -85,8 +88,8 @@ class UnifiedConfidenceScorer:
         syntax_confidence = self._calculate_syntax_confidence(probabilities, error_type)
         logic_confidence = self._calculate_logic_confidence(probabilities, error_type)
 
-        # Calculate overall confidence with components
-        components = self._calculate_components(probabilities, error_type, historical_data)
+        # Calculate overall confidence with components (pass taxonomy difficulty if available)
+        components = self._calculate_components(probabilities, error_type, historical_data, taxonomy_difficulty)
         overall_confidence = self._combine_confidences(
             syntax_confidence, logic_confidence, components, error_type
         )
@@ -138,8 +141,16 @@ class UnifiedConfidenceScorer:
     def _calculate_components(self,
                             probabilities: List[float],
                             error_type: ErrorType,
-                            historical_data: Optional[Dict[str, Any]]) -> ConfidenceComponents:
-        """Calculate confidence components based on various factors"""
+                            historical_data: Optional[Dict[str, Any]],
+                            taxonomy_difficulty: Optional[float] = None) -> ConfidenceComponents:
+        """Calculate confidence components based on various factors
+        
+        Args:
+            probabilities: Softmax probabilities
+            error_type: Type of error being addressed
+            historical_data: Optional historical performance data
+            taxonomy_difficulty: Optional difficulty score from taxonomy (0.0-1.0)
+        """
 
         # Historical success rate
         historical_success = 0.5  # Default neutral
@@ -153,7 +164,14 @@ class UnifiedConfidenceScorer:
 
         # Code complexity penalty
         complexity_penalty = 1.0
-        if historical_data and 'complexity_score' in historical_data:
+        
+        # Taxonomy-aware complexity: use taxonomy difficulty if available
+        if taxonomy_difficulty is not None:
+            # Taxonomy difficulty is 0.0-1.0 scale where higher = harder
+            # Convert to penalty: easy errors (0.0) have minimal penalty, hard errors (1.0) have max penalty
+            complexity_penalty = max(0.1, 1.0 - taxonomy_difficulty * 0.5)
+        elif historical_data and 'complexity_score' in historical_data:
+            # Fallback to historical complexity score
             complexity = historical_data['complexity_score']
             # Higher complexity reduces confidence
             complexity_penalty = max(0.1, 1.0 - (complexity - 1.0) * 0.1)
