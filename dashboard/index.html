@@ -22,6 +22,7 @@
             <li><button class="nav-link" data-view-target="extensions">Extensions</button></li>
             <li><button class="nav-link" data-view-target="heartbeat">Heartbeat</button></li>
             <li><button class="nav-link" data-view-target="testing">Testing</button></li>
+            <li><button class="nav-link" data-view-target="settings">⚙️ Settings</button></li>
           </ul>
         </nav>
       </aside>
@@ -113,11 +114,13 @@
                   <h2 aria-live="polite" data-heartbeat-status>unknown</h2>
                   <p class="hint">Last beat: <span data-heartbeat-timestamp>--</span></p>
                 </div>
-                <button type="button" id="heartbeat-ping" class="primary">Send Heartbeat</button>
+                <div style="display: flex; gap: 0.75rem;">
+                  <button type="button" id="heartbeat-ping" class="primary">Send Heartbeat</button>
+                  <button type="button" id="restart-server" style="background: var(--warning); border-color: var(--warning);">� Check Server Status</button>
+                </div>
               </div>
               <p class="hint">
-                Heartbeat calls <code>/status/heartbeat</code> by default. Customize the
-                endpoint in <code>assets/app.js</code> to use your own scheduler.
+                Heartbeat calls <code>/status/heartbeat</code> by default. Use "Restart Server" if the backend becomes unresponsive.
               </p>
               <ul id="heartbeat-log" class="heartbeat-log" aria-live="polite"></ul>
             </details>
@@ -201,6 +204,209 @@
               <ul id="test-history" class="test-history">
                 <li class="hint">No test history yet</li>
               </ul>
+            </details>
+          </section>
+        </section>
+
+        <!-- Settings View -->
+        <section class="view" data-view="settings" aria-label="LLM provider settings">
+          <h2 class="view-title">🤖 LLM Provider Settings</h2>
+          <p class="view-subtitle">Configure your LLM provider for AI-powered code healing</p>
+
+          <section class="panel">
+            <details open>
+              <summary>Provider Configuration</summary>
+              <form id="settings-form" class="settings-form">
+                <div class="form-group">
+                  <label for="provider">Provider</label>
+                  <select id="provider" name="provider" class="form-select" required>
+                    <option value="lmstudio">🖥️ LM Studio (Local)</option>
+                    <option value="openai">🔵 OpenAI</option>
+                    <option value="anthropic">🟣 Anthropic Claude</option>
+                    <option value="ollama">🦙 Ollama (Local)</option>
+                    <option value="llama">🦙 Meta Llama (Local)</option>
+                    <option value="azure">☁️ Azure OpenAI</option>
+                    <option value="gemini">🔷 Google Gemini</option>
+                    <option value="custom">⚙️ Custom Endpoint</option>
+                  </select>
+                  <small class="form-hint">Select your LLM provider (local providers don't require API keys)</small>
+                </div>
+
+                <div class="form-group" id="api-key-group">
+                  <label for="api_key">API Key</label>
+                  <div class="input-with-toggle">
+                    <input 
+                      type="password" 
+                      id="api_key" 
+                      name="api_key" 
+                      class="form-input"
+                      placeholder="sk-..." 
+                    />
+                    <button type="button" id="toggle-api-key" class="btn-toggle-key">👁️</button>
+                  </div>
+                  <small class="form-hint">API key will be encrypted and stored securely</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="base_url">Base URL</label>
+                  <input 
+                    type="url" 
+                    id="base_url" 
+                    name="base_url" 
+                    class="form-input"
+                    placeholder="http://127.0.0.1:1234/v1" 
+                    required
+                  />
+                  <small class="form-hint">API endpoint URL (auto-filled for LM Studio)</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="model_name">Model</label>
+                  <select id="model_name" name="model_name" class="form-select" required>
+                    <option value="qwen3-32b">Qwen 3 32B (Premium) - 17.33GB</option>
+                    <option value="qwen2-33b">Qwen 2 33B (Premium) - 17.25GB</option>
+                    <option value="gpt-oss-20b">GPT-OSS 20B (Premium) - 12.11GB</option>
+                    <option value="llama-13b">Llama 13B (Standard) - 7.41GB</option>
+                    <option value="llama-12b">Llama 12B (Standard) - 7.48GB</option>
+                    <option value="gemma2-9.2b">Gemma2 9.2B (Standard) - 5.76GB</option>
+                    <option value="llama-8b">Llama 8B (Fast) - 4.92GB</option>
+                    <option value="qwen2-7b">Qwen 2 7B (Fast) - 4.68GB</option>
+                    <option value="llama-7b">Llama 7B (Fast) - 4.08GB</option>
+                  </select>
+                  <small class="form-hint">
+                    <span id="model-tier-hint">
+                      💎 Premium models offer best quality • ⚡ Standard for balanced performance • 🚀 Fast for quick responses
+                    </span>
+                  </small>
+                </div>
+              </form>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>Model Parameters</summary>
+              <div class="settings-form">
+                <div class="form-group">
+                  <label for="temperature">
+                    Temperature: <span id="temperature-value">0.7</span>
+                  </label>
+                  <input 
+                    type="range" 
+                    id="temperature" 
+                    name="temperature" 
+                    min="0" 
+                    max="2" 
+                    step="0.1" 
+                    value="0.7"
+                    class="form-range"
+                  />
+                  <small class="form-hint">Lower = more focused, Higher = more creative (0-2)</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="max_tokens">Max Tokens</label>
+                  <input 
+                    type="number" 
+                    id="max_tokens" 
+                    name="max_tokens" 
+                    class="form-input"
+                    value="2000" 
+                    min="100" 
+                    max="100000"
+                    step="100"
+                  />
+                  <small class="form-hint">Maximum tokens to generate (100-100000)</small>
+                </div>
+
+                <div class="form-group">
+                  <label for="timeout">Request Timeout (seconds)</label>
+                  <input 
+                    type="number" 
+                    id="timeout" 
+                    name="timeout" 
+                    class="form-input"
+                    value="30" 
+                    min="5" 
+                    max="300"
+                  />
+                  <small class="form-hint">How long to wait for responses (5-300 seconds)</small>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>Advanced Options</summary>
+              <div class="settings-form">
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input 
+                      type="checkbox" 
+                      id="keep_alive" 
+                      name="keep_alive" 
+                      checked
+                    />
+                    <span>Enable Keep-Alive Pings</span>
+                  </label>
+                  <small class="form-hint">Periodically ping provider to keep connection alive</small>
+                </div>
+
+                <div class="form-group" id="keep-alive-interval-group">
+                  <label for="keep_alive_interval">
+                    Ping Interval: <span id="keep-alive-interval-value">5</span> minutes
+                  </label>
+                  <input 
+                    type="range" 
+                    id="keep_alive_interval" 
+                    name="keep_alive_interval" 
+                    min="1" 
+                    max="30" 
+                    step="1" 
+                    value="5"
+                    class="form-range"
+                  />
+                  <small class="form-hint">How often to ping (1-30 minutes)</small>
+                </div>
+
+                <div class="form-group">
+                  <label class="checkbox-label">
+                    <input 
+                      type="checkbox" 
+                      id="enabled" 
+                      name="enabled" 
+                      checked
+                    />
+                    <span>Enable LLM Integration</span>
+                  </label>
+                  <small class="form-hint">Master switch for all LLM functionality</small>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <div class="button-group">
+              <button type="button" id="test-connection-btn" class="btn btn-secondary">
+                🔍 Test Connection
+              </button>
+              <button type="button" id="fetch-models-btn" class="btn btn-secondary">
+                📋 Fetch Models
+              </button>
+              <button type="button" id="save-settings-btn" class="btn btn-primary">
+                💾 Save Settings
+              </button>
+            </div>
+            <div id="settings-feedback" class="settings-feedback"></div>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>Connection Test Results</summary>
+              <div id="connection-test-results" class="test-results">
+                <p class="hint">Click "Test Connection" to verify your settings...</p>
+              </div>
             </details>
           </section>
         </section>

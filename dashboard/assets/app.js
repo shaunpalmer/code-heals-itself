@@ -57,6 +57,30 @@ const API = {
     return this.fetch(`/extensions/${id}/${enabled ? 'enable' : 'disable'}`, {
       method: 'POST'
     });
+  },
+
+  // LLM Settings endpoints
+  getLLMSettings() {
+    return this.fetch('/api/llm/settings');
+  },
+
+  saveLLMSettings(settings) {
+    return this.fetch('/api/llm/settings', {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  testLLMConnection() {
+    return this.fetch('/api/llm/test');
+  },
+
+  getLLMModels() {
+    return this.fetch('/api/llm/models');
+  },
+
+  getLLMPresets() {
+    return this.fetch('/api/llm/presets');
   }
 };
 
@@ -1081,6 +1105,33 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.warn('Heartbeat button not found');
     }
 
+    // Wire up restart server button
+    const restartServerButton = safeGetElementById('restart-server');
+    if (restartServerButton) {
+      restartServerButton.addEventListener("click", async () => {
+        try {
+          log("🔄 Checking server status...");
+
+          // Try to ping the server
+          const response = await fetch(`${API.BASE_URL}/keepalive`);
+
+          if (response.ok) {
+            log("✅ Server is running! No restart needed.");
+            appendHeartbeatLog(`${new Date().toISOString()} • Server check: healthy ✓`);
+          } else {
+            log("⚠️ Server responded but may be unhealthy");
+            appendHeartbeatLog(`${new Date().toISOString()} • Server check: degraded`);
+          }
+        } catch (error) {
+          log("❌ Server is not responding - may be down");
+          log("💡 Please restart manually: python dashboard_dev_server.py");
+          appendHeartbeatLog(`${new Date().toISOString()} • Server check: offline ✗`);
+        }
+      });
+    } else {
+      console.warn('Restart server button not found');
+    }
+
     // Wire up testing controls
     const testEndpointSelect = safeGetElementById('test-endpoint');
     const customUrlGroup = safeGetElementById('custom-url-group');
@@ -1309,6 +1360,322 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.log('Dashboard initialized successfully');
     log('Dashboard ready');
 
+    // ========================================================================
+    // SETTINGS TAB INITIALIZATION
+    // ========================================================================
+
+    // Settings form elements
+    const settingsForm = document.getElementById('settings-form');
+    const providerSelect = document.getElementById('provider');
+    const apiKeyInput = document.getElementById('api_key');
+    const apiKeyGroup = document.getElementById('api-key-group');
+    const toggleApiKeyBtn = document.getElementById('toggle-api-key');
+    const baseUrlInput = document.getElementById('base_url');
+    const modelSelect = document.getElementById('model_name');
+    const temperatureInput = document.getElementById('temperature');
+    const temperatureValue = document.getElementById('temperature-value');
+    const maxTokensInput = document.getElementById('max_tokens');
+    const timeoutInput = document.getElementById('timeout');
+    const keepAliveCheck = document.getElementById('keep_alive');
+    const keepAliveIntervalInput = document.getElementById('keep_alive_interval');
+    const keepAliveIntervalValue = document.getElementById('keep-alive-interval-value');
+    const keepAliveIntervalGroup = document.getElementById('keep-alive-interval-group');
+    const enabledCheck = document.getElementById('enabled');
+    const testConnectionBtn = document.getElementById('test-connection-btn');
+    const fetchModelsBtn = document.getElementById('fetch-models-btn');
+    const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const settingsFeedback = document.getElementById('settings-feedback');
+    const connectionTestResults = document.getElementById('connection-test-results');
+
+    // Provider configurations
+    const providerConfigs = {
+      lmstudio: {
+        baseUrl: 'http://127.0.0.1:1234/v1',
+        requiresKey: false,
+        defaultModel: 'qwen3-32b'
+      },
+      openai: {
+        baseUrl: 'https://api.openai.com/v1',
+        requiresKey: true,
+        defaultModel: 'gpt-3.5-turbo'
+      },
+      anthropic: {
+        baseUrl: 'https://api.anthropic.com/v1',
+        requiresKey: true,
+        defaultModel: 'claude-3-sonnet-20240229'
+      },
+      ollama: {
+        baseUrl: 'http://127.0.0.1:11434',
+        requiresKey: false,
+        defaultModel: 'llama2'
+      },
+      llama: {
+        baseUrl: 'http://127.0.0.1:8080',
+        requiresKey: false,
+        defaultModel: 'llama-7b'
+      },
+      azure: {
+        baseUrl: '',
+        requiresKey: true,
+        defaultModel: 'gpt-35-turbo'
+      },
+      gemini: {
+        baseUrl: 'https://generativelanguage.googleapis.com/v1',
+        requiresKey: true,
+        defaultModel: 'gemini-pro'
+      },
+      custom: {
+        baseUrl: '',
+        requiresKey: false,
+        defaultModel: 'model-name'
+      }
+    };
+
+    // Show/hide API key field based on provider
+    function updateProviderUI() {
+      const provider = providerSelect.value;
+      const config = providerConfigs[provider];
+
+      if (config.requiresKey) {
+        apiKeyGroup.classList.remove('hidden');
+      } else {
+        apiKeyGroup.classList.add('hidden');
+      }
+
+      // Update base URL if not already set
+      if (!baseUrlInput.value || baseUrlInput.value === providerConfigs[providerSelect.dataset.lastProvider]?.baseUrl) {
+        baseUrlInput.value = config.baseUrl;
+      }
+
+      providerSelect.dataset.lastProvider = provider;
+    }
+
+    // Toggle API key visibility
+    if (toggleApiKeyBtn) {
+      toggleApiKeyBtn.addEventListener('click', () => {
+        if (apiKeyInput.type === 'password') {
+          apiKeyInput.type = 'text';
+          toggleApiKeyBtn.textContent = '🙈';
+        } else {
+          apiKeyInput.type = 'password';
+          toggleApiKeyBtn.textContent = '👁️';
+        }
+      });
+    }
+
+    // Update temperature display
+    if (temperatureInput) {
+      temperatureInput.addEventListener('input', () => {
+        temperatureValue.textContent = temperatureInput.value;
+      });
+    }
+
+    // Update keep-alive interval display
+    if (keepAliveIntervalInput) {
+      keepAliveIntervalInput.addEventListener('input', () => {
+        keepAliveIntervalValue.textContent = keepAliveIntervalInput.value;
+      });
+    }
+
+    // Enable/disable keep-alive interval based on checkbox
+    if (keepAliveCheck) {
+      keepAliveCheck.addEventListener('change', () => {
+        if (keepAliveCheck.checked) {
+          keepAliveIntervalGroup.classList.remove('disabled');
+        } else {
+          keepAliveIntervalGroup.classList.add('disabled');
+        }
+      });
+    }
+
+    // Provider change handler
+    if (providerSelect) {
+      providerSelect.addEventListener('change', updateProviderUI);
+    }
+
+    // Show feedback message
+    function showFeedback(message, type = 'info') {
+      settingsFeedback.textContent = message;
+      settingsFeedback.className = `settings-feedback ${type} show`;
+      setTimeout(() => {
+        settingsFeedback.classList.remove('show');
+      }, 5000);
+    }
+
+    // Load settings from backend
+    async function loadSettings() {
+      try {
+        const settings = await API.getLLMSettings();
+        if (!settings) {
+          console.warn('[Settings] Failed to load settings, using defaults');
+          return;
+        }
+
+        console.log('[Settings] Loaded:', settings);
+
+        // Populate form
+        if (settings.provider) providerSelect.value = settings.provider;
+        if (settings.base_url) baseUrlInput.value = settings.base_url;
+        if (settings.model_name) modelSelect.value = settings.model_name;
+        if (settings.temperature !== undefined) {
+          temperatureInput.value = settings.temperature;
+          temperatureValue.textContent = settings.temperature;
+        }
+        if (settings.max_tokens) maxTokensInput.value = settings.max_tokens;
+        if (settings.timeout) timeoutInput.value = settings.timeout;
+        if (settings.keep_alive !== undefined) keepAliveCheck.checked = settings.keep_alive;
+        if (settings.keep_alive_interval) {
+          // Convert seconds to minutes for display
+          const minutes = Math.round(settings.keep_alive_interval / 60);
+          keepAliveIntervalInput.value = minutes;
+          keepAliveIntervalValue.textContent = minutes;
+        }
+        if (settings.enabled !== undefined) enabledCheck.checked = settings.enabled;
+
+        // Update UI based on provider
+        updateProviderUI();
+
+        showFeedback('Settings loaded successfully', 'success');
+      } catch (error) {
+        console.error('[Settings] Load error:', error);
+        showFeedback('Failed to load settings', 'error');
+      }
+    }
+
+    // Save settings to backend
+    if (saveSettingsBtn) {
+      saveSettingsBtn.addEventListener('click', async () => {
+        try {
+          const settings = {
+            provider: providerSelect.value,
+            api_key: apiKeyInput.value,
+            base_url: baseUrlInput.value,
+            model_name: modelSelect.value,
+            temperature: parseFloat(temperatureInput.value),
+            max_tokens: parseInt(maxTokensInput.value),
+            timeout: parseInt(timeoutInput.value),
+            keep_alive: keepAliveCheck.checked,
+            keep_alive_interval: parseInt(keepAliveIntervalInput.value) * 60, // Convert minutes to seconds
+            enabled: enabledCheck.checked
+          };
+
+          console.log('[Settings] Saving:', settings);
+          showFeedback('Saving settings...', 'info');
+
+          const result = await API.saveLLMSettings(settings);
+
+          if (result && result.success) {
+            showFeedback('✅ Settings saved successfully!', 'success');
+            console.log('[Settings] Save succeeded');
+          } else {
+            const errorMsg = result?.error || 'Unknown error';
+            showFeedback(`❌ Failed to save: ${errorMsg}`, 'error');
+            console.error('[Settings] Save failed:', errorMsg);
+          }
+        } catch (error) {
+          console.error('[Settings] Save error:', error);
+          showFeedback('❌ Failed to save settings', 'error');
+        }
+      });
+    }
+
+    // Test connection
+    if (testConnectionBtn) {
+      testConnectionBtn.addEventListener('click', async () => {
+        try {
+          showFeedback('Testing connection...', 'info');
+          connectionTestResults.innerHTML = '<p class="hint">⏳ Testing connection...</p>';
+
+          const result = await API.testLLMConnection();
+
+          if (!result) {
+            connectionTestResults.innerHTML = `
+              <div class="status-badge error">❌ Connection Failed</div>
+              <p style="margin-top: 1rem; color: var(--muted);">
+                Unable to reach the backend server. Make sure the Flask server is running.
+              </p>
+            `;
+            showFeedback('❌ Connection test failed', 'error');
+            return;
+          }
+
+          const ping = result.ping || {};
+          const models = result.models || [];
+
+          if (ping.ok) {
+            const latency = ping.latency_ms ? ` (${ping.latency_ms}ms)` : '';
+            connectionTestResults.innerHTML = `
+              <div class="status-badge success">✅ Connection Successful${latency}</div>
+              <p style="margin-top: 1rem; color: var(--muted);">
+                Provider: <strong style="color: var(--text);">${ping.provider}</strong><br>
+                ${models.length > 0 ? `Available models: <strong style="color: var(--text);">${models.length}</strong>` : ''}
+              </p>
+              ${models.length > 0 ? `
+                <details style="margin-top: 1rem;">
+                  <summary style="cursor: pointer; color: var(--accent);">Available Models (${models.length})</summary>
+                  <ul style="margin-top: 0.5rem; padding-left: 1.5rem; color: var(--muted);">
+                    ${models.map(m => `<li>${m}</li>`).join('')}
+                  </ul>
+                </details>
+              ` : ''}
+            `;
+            showFeedback('✅ Connection successful!', 'success');
+          } else {
+            connectionTestResults.innerHTML = `
+              <div class="status-badge error">❌ Connection Failed</div>
+              <p style="margin-top: 1rem; color: #e57373;">
+                ${ping.error || 'Unknown error'}
+              </p>
+            `;
+            showFeedback('❌ Connection test failed', 'error');
+          }
+        } catch (error) {
+          console.error('[Settings] Test connection error:', error);
+          connectionTestResults.innerHTML = `
+            <div class="status-badge error">❌ Connection Failed</div>
+            <p style="margin-top: 1rem; color: #e57373;">${error.message}</p>
+          `;
+          showFeedback('❌ Connection test failed', 'error');
+        }
+      });
+    }
+
+    // Fetch models button
+    if (fetchModelsBtn) {
+      fetchModelsBtn.addEventListener('click', async () => {
+        try {
+          showFeedback('Fetching models...', 'info');
+
+          const result = await API.getLLMModels();
+
+          if (result && result.models && result.models.length > 0) {
+            // Update model dropdown
+            modelSelect.innerHTML = result.models
+              .map(m => `<option value="${m}">${m}</option>`)
+              .join('');
+            showFeedback(`✅ Loaded ${result.models.length} models`, 'success');
+          } else {
+            showFeedback('❌ No models found or fetch failed', 'error');
+          }
+        } catch (error) {
+          console.error('[Settings] Fetch models error:', error);
+          showFeedback('❌ Failed to fetch models', 'error');
+        }
+      });
+    }
+
+    // Load settings when Settings tab is opened
+    const originalSetActiveView = setActiveView;
+    setActiveView = function (viewName) {
+      originalSetActiveView(viewName);
+      if (viewName === 'settings') {
+        console.log('[Settings] Tab activated, loading settings...');
+        loadSettings();
+      }
+    };
+
+    // END SETTINGS TAB INITIALIZATION
+
     // Load live data after a brief delay
     console.log('[INIT] Starting live data load in 500ms...');
     setTimeout(() => {
@@ -1317,6 +1684,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         console.error('[INIT] Live data load failed:', error);
       });
     }, 500);
+
+    // Keepalive ping every 5 minutes to prevent server timeout
+    setInterval(async () => {
+      try {
+        await fetch(`${API.BASE_URL}/keepalive`);
+        console.log('[Keepalive] Server pinged - staying alive');
+      } catch (error) {
+        console.warn('[Keepalive] Ping failed - server may be down', error);
+      }
+    }, 5 * 60 * 1000); // 5 minutes
 
   } catch (error) {
     console.error('Dashboard initialization failed:', error);
