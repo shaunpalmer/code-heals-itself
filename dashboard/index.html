@@ -8,8 +8,16 @@
   </head>
   <body>
     <header class="top-bar">
-      <h1>Operator Dashboard</h1>
-      <p class="tagline">Quick controls, live signals, and envelope visibility</p>
+      <div class="top-bar-content">
+        <div>
+          <h1>Operator Dashboard</h1>
+          <p class="tagline">Quick controls, live signals, and envelope visibility</p>
+        </div>
+        <div id="global-status-indicator" class="global-status">
+          <span class="status-dot">🔴</span>
+          <span class="status-text">Disconnected</span>
+        </div>
+      </div>
     </header>
 
     <div class="layout">
@@ -406,6 +414,44 @@
               <summary>Connection Test Results</summary>
               <div id="connection-test-results" class="test-results">
                 <p class="hint">Click "Test Connection" to verify your settings...</p>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>🔄 Keep-Alive Control</summary>
+              <div class="keepalive-control">
+                <div class="keepalive-status-bar">
+                  <span id="keepalive-status-indicator" class="status-indicator">🔴</span>
+                  <span id="keepalive-status-text">Not Running</span>
+                  <span id="keepalive-uptime" class="uptime-text"></span>
+                </div>
+                
+                <div class="button-group" style="margin-top: 1rem;">
+                  <button type="button" id="start-keepalive-btn" class="btn btn-success">
+                    ▶️ Start Keep-Alive
+                  </button>
+                  <button type="button" id="stop-keepalive-btn" class="btn btn-danger" disabled>
+                    ⏸️ Stop Keep-Alive
+                  </button>
+                  <button type="button" id="refresh-keepalive-btn" class="btn btn-secondary">
+                    🔄 Refresh Status
+                  </button>
+                </div>
+
+                <div id="keepalive-last-ping" class="last-ping-info" style="margin-top: 1rem;">
+                  <strong>Last Ping:</strong> <span class="hint">No pings yet</span>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details>
+              <summary>Keep-Alive Logs (Last 20)</summary>
+              <div id="keepalive-logs" class="keepalive-logs">
+                <p class="hint">Start keep-alive to see logs...</p>
               </div>
             </details>
           </section>

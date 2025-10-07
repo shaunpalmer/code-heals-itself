@@ -839,3 +839,150 @@ body.is-busy button {
   color: var(--muted);
   font-size: 1rem;
 }
+
+/* Global Status Indicator */
+.top-bar-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2rem;
+}
+
+.global-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 24px;
+  border: 1px solid var(--border);
+}
+
+.status-dot {
+  font-size: 1.2rem;
+  line-height: 1;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.status-text {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Keep-Alive Control Panel */
+.keepalive-control {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.keepalive-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.status-indicator {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+#keepalive-status-text {
+  font-weight: 600;
+  font-size: 1rem;
+  flex: 1;
+}
+
+.uptime-text {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.last-ping-info {
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.keepalive-logs {
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+.log-entry {
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-left: 3px solid var(--border);
+  border-radius: 4px;
+}
+
+.log-entry.success {
+  border-left-color: #81c784;
+}
+
+.log-entry.error {
+  border-left-color: #e57373;
+}
+
+.log-entry.skipped {
+  border-left-color: #ffa726;
+}
+
+.log-timestamp {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.log-details {
+  margin-top: 0.25rem;
+  color: var(--text);
+}
+
+/* Button variants */
+.btn-success {
+  background: rgba(76, 175, 80, 0.2);
+  border-color: rgba(76, 175, 80, 0.5);
+  color: #81c784;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: rgba(76, 175, 80, 0.3);
+  border-color: #81c784;
+}
+
+.btn-danger {
+  background: rgba(244, 67, 54, 0.2);
+  border-color: rgba(244, 67, 54, 0.5);
+  color: #e57373;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.3);
+  border-color: #e57373;
+}
+
+@media (max-width: 768px) {
+  .top-bar-content {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .global-status {
+    align-self: stretch;
+  }
+}

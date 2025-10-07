@@ -81,6 +81,23 @@ const API = {
 
   getLLMPresets() {
     return this.fetch('/api/llm/presets');
+  },
+
+  // Keep-Alive Control endpoints
+  startKeepAlive() {
+    return this.fetch('/api/keepalive/start', { method: 'POST' });
+  },
+
+  stopKeepAlive() {
+    return this.fetch('/api/keepalive/stop', { method: 'POST' });
+  },
+
+  getKeepAliveStatus() {
+    return this.fetch('/api/keepalive/status');
+  },
+
+  getKeepAliveLogs() {
+    return this.fetch('/api/keepalive/logs');
   }
 };
 
@@ -1671,8 +1688,161 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (viewName === 'settings') {
         console.log('[Settings] Tab activated, loading settings...');
         loadSettings();
+        refreshKeepAliveStatus();  // Also refresh keep-alive status
       }
     };
+
+    // ========================================================================
+    // KEEP-ALIVE CONTROL HANDLERS
+    // ========================================================================
+
+    const startKeepAliveBtn = document.getElementById('start-keepalive-btn');
+    const stopKeepAliveBtn = document.getElementById('stop-keepalive-btn');
+    const refreshKeepAliveBtn = document.getElementById('refresh-keepalive-btn');
+    const keepAliveStatusIndicator = document.getElementById('keepalive-status-indicator');
+    const keepAliveStatusText = document.getElementById('keepalive-status-text');
+    const keepAliveUptime = document.getElementById('keepalive-uptime');
+    const keepAliveLastPing = document.getElementById('keepalive-last-ping');
+    const keepAliveLogs = document.getElementById('keepalive-logs');
+    const globalStatusIndicator = document.getElementById('global-status-indicator');
+
+    // Update status display
+    function updateKeepAliveStatus(status) {
+      if (!keepAliveStatusIndicator || !keepAliveStatusText) return;
+
+      const statusMap = {
+        running: { indicator: '🟢', text: 'Running', global: '🟢 Connected' },
+        starting: { indicator: '🟡', text: 'Starting...', global: '🟡 Connecting' },
+        stopped: { indicator: '🔴', text: 'Not Running', global: '🔴 Disconnected' },
+        error: { indicator: '🔴', text: 'Error', global: '🔴 Error' }
+      };
+
+      const config = statusMap[status.status] || statusMap.stopped;
+      keepAliveStatusIndicator.textContent = config.indicator;
+      keepAliveStatusText.textContent = config.text;
+
+      // Update global indicator
+      if (globalStatusIndicator) {
+        const [dot, text] = config.global.split(' ');
+        globalStatusIndicator.querySelector('.status-dot').textContent = dot;
+        globalStatusIndicator.querySelector('.status-text').textContent = text;
+      }
+
+      // Update uptime
+      if (keepAliveUptime) {
+        keepAliveUptime.textContent = status.uptime || '';
+      }
+
+      // Update last ping
+      if (keepAliveLastPing && status.last_ping) {
+        const ping = status.last_ping;
+        const statusIcon = ping.status === 'ok' ? '✅' : ping.status === 'error' ? '❌' : '⚠️';
+        keepAliveLastPing.innerHTML = `
+          <strong>Last Ping:</strong> ${statusIcon} 
+          ${ping.provider || 'unknown'} 
+          ${ping.latency_ms ? `(${ping.latency_ms}ms)` : ''} 
+          at ${new Date(ping.timestamp).toLocaleTimeString()}
+          ${ping.error ? `<br><span style="color: #e57373;">${ping.error}</span>` : ''}
+        `;
+      }
+
+      // Update button states
+      if (startKeepAliveBtn) startKeepAliveBtn.disabled = status.running;
+      if (stopKeepAliveBtn) stopKeepAliveBtn.disabled = !status.running;
+    }
+
+    // Update logs display
+    function updateKeepAliveLogs(logs) {
+      if (!keepAliveLogs || !logs || logs.length === 0) return;
+
+      keepAliveLogs.innerHTML = logs.reverse().map(log => {
+        const statusClass = log.status === 'ok' ? 'success' : log.status === 'error' ? 'error' : 'skipped';
+        const statusIcon = log.status === 'ok' ? '✅' : log.status === 'error' ? '❌' : '⚠️';
+
+        return `
+          <div class="log-entry ${statusClass}">
+            <div class="log-timestamp">${new Date(log.timestamp).toLocaleTimeString()}</div>
+            <div class="log-details">
+              ${statusIcon} ${log.provider || 'unknown'} 
+              ${log.model ? `• ${log.model}` : ''}
+              ${log.latency_ms ? `• ${log.latency_ms}ms` : ''}
+              ${log.http_status ? `• HTTP ${log.http_status}` : ''}
+              ${log.error ? `• <span style="color: #e57373;">${log.error}</span>` : ''}
+              ${log.message ? `• ${log.message}` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Refresh status from server
+    async function refreshKeepAliveStatus() {
+      try {
+        const status = await API.getKeepAliveStatus();
+        if (status) {
+          updateKeepAliveStatus(status);
+          if (status.logs && status.logs.length > 0) {
+            updateKeepAliveLogs(status.logs);
+          }
+        }
+      } catch (error) {
+        console.error('[Keep-Alive] Failed to refresh status:', error);
+      }
+    }
+
+    // Start keep-alive
+    if (startKeepAliveBtn) {
+      startKeepAliveBtn.addEventListener('click', async () => {
+        try {
+          const result = await API.startKeepAlive();
+          if (result && result.ok) {
+            showFeedback(`✅ ${result.message}`, 'success');
+            await refreshKeepAliveStatus();
+
+            // Start auto-refresh every 10 seconds
+            if (window.keepAliveRefreshInterval) {
+              clearInterval(window.keepAliveRefreshInterval);
+            }
+            window.keepAliveRefreshInterval = setInterval(refreshKeepAliveStatus, 10000);
+          } else {
+            showFeedback(`❌ Failed to start: ${result?.error || 'Unknown error'}`, 'error');
+          }
+        } catch (error) {
+          showFeedback(`❌ Error: ${error.message}`, 'error');
+        }
+      });
+    }
+
+    // Stop keep-alive
+    if (stopKeepAliveBtn) {
+      stopKeepAliveBtn.addEventListener('click', async () => {
+        try {
+          const result = await API.stopKeepAlive();
+          if (result && result.ok) {
+            showFeedback(`✅ ${result.message}`, 'success');
+            await refreshKeepAliveStatus();
+
+            // Stop auto-refresh
+            if (window.keepAliveRefreshInterval) {
+              clearInterval(window.keepAliveRefreshInterval);
+              window.keepAliveRefreshInterval = null;
+            }
+          } else {
+            showFeedback(`❌ Failed to stop: ${result?.error || 'Unknown error'}`, 'error');
+          }
+        } catch (error) {
+          showFeedback(`❌ Error: ${error.message}`, 'error');
+        }
+      });
+    }
+
+    // Refresh status manually
+    if (refreshKeepAliveBtn) {
+      refreshKeepAliveBtn.addEventListener('click', refreshKeepAliveStatus);
+    }
+
+    // Initial status check
+    refreshKeepAliveStatus();
 
     // END SETTINGS TAB INITIALIZATION
 
