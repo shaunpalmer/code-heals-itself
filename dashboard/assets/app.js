@@ -43,6 +43,14 @@ const API = {
     return this.fetch('/envelopes/latest');
   },
 
+  getSuccessPatternsStats() {
+    return this.fetch('/api/success-patterns/stats');
+  },
+
+  getHealingStatus() {
+    return this.fetch('/api/healing/status');
+  },
+
   triggerHeal() {
     return this.fetch('/debug/run', { method: 'POST' });
   },

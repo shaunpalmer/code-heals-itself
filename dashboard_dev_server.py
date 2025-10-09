@@ -5,9 +5,23 @@ import os
 import sys
 import asyncio
 import threading
+import signal
 from pathlib import Path
 from collections import deque
 from datetime import datetime
+import traceback
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler('dashboard.log', encoding='utf-8')
+    ]
+)
+logger = logging.getLogger(__name__)
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
@@ -23,6 +37,9 @@ from llm_settings import (
 from clients.llm_client import LLMClient
 from envelope_storage import get_envelope_storage
 
+# Global shutdown flag
+shutdown_flag = threading.Event()
+
 # Keep-alive state management
 keepalive_state = {
     "running": False,
@@ -37,16 +54,46 @@ keepalive_state = {
 
 app = Flask(__name__)
 
-# Enable CORS with explicit configuration for development
+# Enable CORS with explicit configuration for Chrome/Firefox compatibility
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": ["http://localhost:5000", "http://127.0.0.1:5000", "http://[::1]:5000"],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
         "expose_headers": ["Content-Type"],
-        "supports_credentials": False
+        "supports_credentials": True,
+        "max_age": 3600
     }
 })
+
+# Error handler for 404
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({"error": "Endpoint not found"}), 404
+
+# Error handler for 500
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {error}")
+    return jsonify({"error": "Internal server error"}), 500
+
+# Health check endpoint
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        storage = get_envelope_storage()
+        storage_ok = True
+    except Exception as e:
+        storage_ok = False
+        logger.warning(f"Storage health check failed: {e}")
+    
+    return jsonify({
+        "status": "healthy" if storage_ok else "degraded",
+        "storage": "ok" if storage_ok else "error",
+        "timestamp": datetime.now().isoformat(),
+        "uptime": time.time() - app.config.get('START_TIME', time.time())
+    })
 
 # Dashboard static files directory
 DASHBOARD_DIR = os.path.join(os.path.dirname(__file__), 'dashboard')
@@ -105,29 +152,171 @@ def serve_assets(filename):
 # API endpoints for dashboard
 @app.route('/status/metrics', methods=['GET'])
 def get_metrics():
+    """Get healing metrics from storage"""
     try:
         storage = get_envelope_storage()
         real_metrics = storage.get_metrics()
         return jsonify(real_metrics)
     except Exception as e:
-        print(f"Error getting metrics: {e}")
-        # Fallback to mock data if storage fails
-        return jsonify(metrics)
+        logger.error(f"Error getting metrics: {e}\n{traceback.format_exc()}")
+        # Fallback to safe default
+        return jsonify({
+            "healingSuccess": 0,
+            "breakerStatus": "unknown",
+            "pendingReviews": 0,
+            "error": "Storage unavailable"
+        }), 503
 
 @app.route('/envelopes/latest', methods=['GET'])
 def get_envelopes():
+    """Get latest envelopes from storage"""
     try:
         storage = get_envelope_storage()
-        real_envelopes = storage.get_latest_envelopes(limit=20)
+        limit = request.args.get('limit', 20, type=int)
+        real_envelopes = storage.get_latest_envelopes(limit=min(limit, 100))
         return jsonify({"envelopes": real_envelopes})
     except Exception as e:
-        print(f"Error getting envelopes: {e}")
-        # Fallback to mock data if storage fails
-        return jsonify({"envelopes": envelopes})
+        logger.error(f"Error getting envelopes: {e}\n{traceback.format_exc()}")
+        return jsonify({
+            "envelopes": [],
+            "error": "Storage unavailable"
+        }), 503
 
 @app.route('/debug/run', methods=['POST'])
 def trigger_heal():
     return jsonify({"acknowledged": True})
+
+@app.route('/api/success-patterns/stats', methods=['GET'])
+def get_success_patterns_stats():
+    """Get success patterns knowledge base statistics"""
+    try:
+        storage = get_envelope_storage()
+        
+        # Get overall stats
+        stats = storage.get_success_stats()
+        
+        # Get patterns by family
+        with storage._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT 
+                    SUBSTR(error_code, 1, INSTR(error_code, '.') - 1) as family,
+                    COUNT(*) as pattern_count,
+                    SUM(success_count) as total_successes
+                FROM success_patterns
+                WHERE error_code LIKE '%.%'
+                GROUP BY family
+                ORDER BY total_successes DESC
+            """)
+            by_family = [
+                {
+                    "family": row[0] if row[0] else "OTHER",
+                    "pattern_count": row[1],
+                    "total_successes": row[2]
+                }
+                for row in cursor.fetchall()
+            ]
+            
+            # Get top patterns
+            cursor = conn.execute("""
+                SELECT error_code, cluster_id, fix_description, 
+                       success_count, avg_confidence, tags
+                FROM success_patterns
+                ORDER BY success_count DESC, avg_confidence DESC
+                LIMIT 10
+            """)
+            top_patterns = [
+                {
+                    "error_code": row[0],
+                    "cluster_id": row[1],
+                    "fix_description": row[2],
+                    "success_count": row[3],
+                    "avg_confidence": row[4],
+                    "tags": row[5]
+                }
+                for row in cursor.fetchall()
+            ]
+            
+            # Get recent patterns (last 24 hours)
+            cursor = conn.execute("""
+                SELECT error_code, cluster_id, fix_description, 
+                       success_count, avg_confidence, last_success_at
+                FROM success_patterns
+                WHERE datetime(last_success_at) >= datetime('now', '-24 hours')
+                ORDER BY last_success_at DESC
+                LIMIT 10
+            """)
+            recent_patterns = [
+                {
+                    "error_code": row[0],
+                    "cluster_id": row[1],
+                    "fix_description": row[2],
+                    "success_count": row[3],
+                    "avg_confidence": row[4],
+                    "last_success": row[5]
+                }
+                for row in cursor.fetchall()
+            ]
+        
+        return jsonify({
+            "stats": stats,
+            "by_family": by_family,
+            "top_patterns": top_patterns,
+            "recent_patterns": recent_patterns
+        })
+    except Exception as e:
+        logger.error(f"Error getting success patterns stats: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/healing/status', methods=['GET'])
+def get_healing_status():
+    """Get current healing status (if active)"""
+    try:
+        storage = get_envelope_storage()
+        
+        # Get latest envelope to determine if healing is active
+        latest = storage.get_latest_envelopes(limit=1)
+        
+        if latest:
+            last_envelope = latest[0]
+            last_time = datetime.fromisoformat(last_envelope['timestamp'].replace('Z', '+00:00'))
+            age_seconds = (datetime.now(last_time.tzinfo) - last_time).total_seconds()
+            
+            # Consider "active" if last envelope was within 30 seconds
+            is_active = age_seconds < 30
+            
+            # Get patterns that might be in use
+            patterns_in_use = []
+            if 'metadata' in last_envelope and 'rebanker_raw' in last_envelope.get('metadata', {}):
+                rebanker = last_envelope['metadata']['rebanker_raw']
+                error_code = rebanker.get('code')
+                cluster_id = rebanker.get('cluster_id')
+                
+                if error_code:
+                    patterns = storage.get_similar_success_patterns(
+                        error_code=error_code,
+                        cluster_id=cluster_id,
+                        limit=3
+                    )
+                    patterns_in_use = patterns
+            
+            return jsonify({
+                "active": is_active,
+                "last_heal": last_envelope['timestamp'],
+                "age_seconds": round(age_seconds, 1),
+                "last_status": last_envelope.get('status'),
+                "last_error": last_envelope.get('metadata', {}).get('rebanker_raw', {}).get('code'),
+                "patterns_available": len(patterns_in_use),
+                "patterns": patterns_in_use[:3] if patterns_in_use else []
+            })
+        else:
+            return jsonify({
+                "active": False,
+                "last_heal": None,
+                "message": "No healing runs recorded yet"
+            })
+    except Exception as e:
+        logger.error(f"Error getting healing status: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/status/heartbeat', methods=['POST'])
 def heartbeat():
@@ -473,24 +662,80 @@ def get_keepalive_logs():
 if __name__ == '__main__':
     import sys
     
-    print("🚀 Starting Dashboard Development Server")
-    print("📊 Dashboard UI: http://127.0.0.1:5000")
-    print("🔌 API endpoints ready on port 5000")
-    print("♾️  Auto-restart enabled - server will recover from crashes")
+    # Set start time for health check
+    app.config['START_TIME'] = time.time()
     
-    # Auto-restart loop
+    # Setup graceful shutdown
+    def signal_handler(sig, frame):
+        logger.info("Shutdown signal received, cleaning up...")
+        shutdown_flag.set()
+        
+        # Stop keep-alive if running
+        if keepalive_state["running"] and keepalive_state["stop_event"]:
+            keepalive_state["stop_event"].set()
+        
+        logger.info("Shutdown complete")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    logger.info("Dashboard Development Server Starting")
+    logger.info("Dashboard UI: http://127.0.0.1:5000")
+    logger.info("API endpoints ready on port 5000")
+    logger.info("Health check: http://127.0.0.1:5000/health")
+    logger.info("Auto-restart enabled - server will recover from crashes")
+    
+    # Auto-restart loop with better error handling
     restart_count = 0
-    while True:
+    max_restarts = 10
+    restart_window = 60  # seconds
+    restart_times = deque(maxlen=max_restarts)
+    
+    while not shutdown_flag.is_set():
         try:
-            app.run(port=5000, threaded=True, use_reloader=False)
+            # Check if we're restarting too frequently
+            now = time.time()
+            restart_times.append(now)
+            
+            if len(restart_times) >= max_restarts:
+                time_span = now - restart_times[0]
+                if time_span < restart_window:
+                    logger.error(f"Too many restarts ({max_restarts} in {restart_window}s)")
+                    logger.error("Server appears to be in a crash loop. Exiting.")
+                    sys.exit(1)
+            
+            # Run server with timeout handling
+            app.run(
+                host='127.0.0.1',
+                port=5000,
+                threaded=True,
+                use_reloader=False,
+                debug=False
+            )
             break  # Normal shutdown
+            
         except KeyboardInterrupt:
-            print("\n👋 Server stopped by user")
+            logger.info("\nServer stopped by user")
+            shutdown_flag.set()
             sys.exit(0)
+            
+        except OSError as e:
+            if "address already in use" in str(e).lower():
+                logger.error("Port 5000 is already in use")
+                logger.error("Kill the other process or choose a different port")
+                sys.exit(1)
+            else:
+                restart_count += 1
+                logger.error(f"OS Error (restart #{restart_count}): {e}")
+                logger.error(traceback.format_exc())
+                
         except Exception as e:
             restart_count += 1
-            print(f"\n⚠️  Server crashed (restart #{restart_count}): {e}")
-            print("🔄 Restarting in 3 seconds...")
-            import time
+            logger.error(f"Server crashed (restart #{restart_count}): {e}")
+            logger.error(traceback.format_exc())
+        
+        if not shutdown_flag.is_set():
+            logger.info("Restarting in 3 seconds...")
             time.sleep(3)
-            print("✨ Server restarting...\n")
+            logger.info("Server restarting...\n")

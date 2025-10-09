@@ -26,6 +26,7 @@
         <nav>
           <ul class="sidebar-nav" id="nav">
             <li><button class="nav-link is-active" data-view-target="overview">Overview</button></li>
+            <li><button class="nav-link" data-view-target="knowledge">🧠 Knowledge Base</button></li>
             <li><button class="nav-link" data-view-target="envelopes">Envelopes</button></li>
             <li><button class="nav-link" data-view-target="extensions">Extensions</button></li>
             <li><button class="nav-link" data-view-target="heartbeat">Heartbeat</button></li>
@@ -53,6 +54,41 @@
               <div class="metric" data-metric="pending-reviews">--</div>
               <p class="hint">Awaiting human confirmation</p>
             </article>
+            <article class="widget">
+              <h2>Healing Status</h2>
+              <div class="metric" data-metric="healing-status">
+                <span class="status-indicator">⚪</span>
+                <span>Idle</span>
+              </div>
+              <p class="hint" data-metric="healing-age">Last run: unknown</p>
+            </article>
+            <article class="widget">
+              <h2>Knowledge Base</h2>
+              <div class="metric" data-metric="pattern-count">--</div>
+              <p class="hint">Success patterns learned</p>
+            </article>
+          </section>
+
+          <section class="panel" aria-label="healing flow">
+            <details open>
+              <summary>🔄 Real-Time Healing Flow</summary>
+              <div id="healing-flow" class="healing-flow">
+                <div class="flow-status">
+                  <div class="flow-indicator" data-flow-status="idle">
+                    <span class="status-dot">⚪</span>
+                    <span>Waiting for errors...</span>
+                  </div>
+                  <div class="flow-stats">
+                    <span data-flow-error>No active error</span>
+                  </div>
+                </div>
+                <div class="flow-patterns" id="flow-patterns" style="display: none;">
+                  <h4>📚 Patterns Available:</h4>
+                  <ul id="flow-patterns-list"></ul>
+                </div>
+              </div>
+              <p class="hint">Shows active healing attempts and available success patterns in real-time</p>
+            </details>
           </section>
 
           <section class="panel" aria-label="control panel">
@@ -80,6 +116,59 @@
                 <code>assets/app.js</code> to wire in custom endpoints or authentication.
               </p>
               <output id="control-log" aria-live="polite"></output>
+            </details>
+          </section>
+        </section>
+
+        <section class="view" data-view="knowledge" aria-label="Success patterns knowledge base">
+          <section class="panel">
+            <details open>
+              <summary>📊 Knowledge Base Statistics</summary>
+              <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+                <div class="stat-card">
+                  <h3 data-kb-total>--</h3>
+                  <p>Total Patterns</p>
+                </div>
+                <div class="stat-card">
+                  <h3 data-kb-gold>--</h3>
+                  <p>Gold Standard (≥0.9)</p>
+                </div>
+                <div class="stat-card">
+                  <h3 data-kb-avg-confidence>--%</h3>
+                  <p>Average Confidence</p>
+                </div>
+                <div class="stat-card">
+                  <h3 data-kb-successes>--</h3>
+                  <p>Total Successes</p>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>🏆 Top Patterns (Most Successful)</summary>
+              <div id="top-patterns" class="patterns-list">
+                <p class="hint">Loading patterns...</p>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>🔥 Recent Patterns (Last 24h)</summary>
+              <div id="recent-patterns" class="patterns-list">
+                <p class="hint">Loading patterns...</p>
+              </div>
+            </details>
+          </section>
+
+          <section class="panel">
+            <details open>
+              <summary>📦 Patterns by Error Family</summary>
+              <div id="patterns-by-family" class="family-list">
+                <p class="hint">Loading pattern distribution...</p>
+              </div>
             </details>
           </section>
         </section>
@@ -496,5 +585,6 @@
     </template>
 
     <script src="assets/app.js"></script>
+    <script src="assets/dashboard-enhancements.js"></script>
   </body>
 </html>
