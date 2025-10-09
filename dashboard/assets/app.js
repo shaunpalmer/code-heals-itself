@@ -80,6 +80,10 @@ const API = {
     });
   },
 
+  getLLMDefaults() {
+    return this.fetch('/api/llm/defaults');
+  },
+
   testLLMConnection() {
     return this.fetch('/api/llm/test');
   },
@@ -1418,6 +1422,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     const keepAliveIntervalValue = document.getElementById('keep-alive-interval-value');
     const keepAliveIntervalGroup = document.getElementById('keep-alive-interval-group');
     const enabledCheck = document.getElementById('enabled');
+    const loadDefaultsBtn = document.getElementById('load-defaults-btn');
     const testConnectionBtn = document.getElementById('test-connection-btn');
     const fetchModelsBtn = document.getElementById('fetch-models-btn');
     const saveSettingsBtn = document.getElementById('save-settings-btn');
@@ -1576,7 +1581,129 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     }
 
-    // Save settings to backend
+    // Load default settings from config.default.json
+    if (loadDefaultsBtn) {
+      loadDefaultsBtn.addEventListener('click', async () => {
+        try {
+          // Hardcoded defaults - no server needed!
+          const defaults = {
+            provider: "lmstudio",
+            base_url: "http://127.0.0.1:1234/v1",
+            model_name: "qwen2.5-coder-7b-instruct",
+            api_key: "",
+            temperature: 0.7,
+            max_tokens: 2000,
+            timeout: 30,
+            enabled: true,
+            keep_alive: true,
+            keep_alive_interval: 300  // seconds
+          };
+
+          console.log('[Settings] Loading hardcoded defaults:', defaults);
+
+          // Step 1: Populate form with defaults
+          showFeedback('📥 Loading defaults...', 'info');
+
+          if (defaults.provider) providerSelect.value = defaults.provider;
+          if (defaults.base_url) baseUrlInput.value = defaults.base_url;
+
+          // Model name - add to dropdown if not present
+          if (defaults.model_name) {
+            const modelExists = Array.from(modelSelect.options).some(opt => opt.value === defaults.model_name);
+            if (!modelExists) {
+              const option = document.createElement('option');
+              option.value = defaults.model_name;
+              option.textContent = defaults.model_name;
+              modelSelect.appendChild(option);
+              console.log('[Settings] Added missing model to dropdown:', defaults.model_name);
+            }
+            modelSelect.value = defaults.model_name;
+          }
+
+          if (defaults.api_key !== undefined) apiKeyInput.value = defaults.api_key || '';
+          if (defaults.temperature !== undefined) {
+            temperatureInput.value = defaults.temperature;
+            temperatureValue.textContent = defaults.temperature;
+          }
+          if (defaults.max_tokens) maxTokensInput.value = defaults.max_tokens;
+          if (defaults.timeout) timeoutInput.value = defaults.timeout;
+          if (defaults.keep_alive !== undefined) keepAliveCheck.checked = defaults.keep_alive;
+          if (defaults.keep_alive_interval) {
+            // Convert seconds to minutes for display
+            const minutes = Math.round(defaults.keep_alive_interval / 60);
+            keepAliveIntervalInput.value = minutes;
+            keepAliveIntervalValue.textContent = minutes;
+          }
+          if (defaults.enabled !== undefined) enabledCheck.checked = defaults.enabled;
+
+          // Update UI based on provider
+          updateProviderUI();
+
+          // Step 2: Test connection automatically (only if server is reachable)
+          showFeedback('🔍 Testing connection...', 'info');
+          await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for UX
+
+          const testResult = await API.testLLMConnection();
+
+          if (!testResult) {
+            showFeedback('⚠️ Defaults loaded but server unreachable. Click "Save Settings" when server is running.', 'warning');
+            return;
+          }
+
+          const ping = testResult.ping || {};
+
+          if (ping.ok) {
+            // Step 3: Auto-save if connection successful
+            showFeedback('💾 Connection successful! Saving settings...', 'info');
+            await new Promise(resolve => setTimeout(resolve, 300));
+
+            const settings = {
+              provider: providerSelect.value,
+              api_key: apiKeyInput.value,
+              base_url: baseUrlInput.value,
+              model_name: modelSelect.value,
+              temperature: parseFloat(temperatureInput.value),
+              max_tokens: parseInt(maxTokensInput.value),
+              timeout: parseInt(timeoutInput.value),
+              keep_alive: keepAliveCheck.checked,
+              keep_alive_interval: parseInt(keepAliveIntervalInput.value) * 60,
+              enabled: enabledCheck.checked
+            };
+
+            const saveResult = await API.saveLLMSettings(settings);
+
+            if (saveResult && saveResult.success) {
+              const latency = ping.latency_ms ? ` (${ping.latency_ms}ms)` : '';
+              showFeedback(`✅ All done! Connected to ${ping.provider}${latency} and settings saved!`, 'success');
+
+              // Update connection test results
+              connectionTestResults.innerHTML = `
+                <div class="status-badge success">✅ Auto-Configuration Complete</div>
+                <p style="margin-top: 1rem; color: var(--muted);">
+                  Provider: <strong style="color: var(--text);">${ping.provider}</strong><br>
+                  Status: <strong style="color: var(--success);">Connected & Saved</strong>
+                </p>
+              `;
+            } else {
+              showFeedback('⚠️ Connected but failed to save. Click "Save Settings" manually.', 'warning');
+            }
+          } else {
+            const error = ping.error || 'Unknown error';
+            showFeedback(`⚠️ Defaults loaded but connection failed: ${error}`, 'warning');
+            connectionTestResults.innerHTML = `
+              <div class="status-badge warning">⚠️ Connection Failed</div>
+              <p style="margin-top: 1rem; color: var(--muted);">
+                Error: ${error}<br>
+                <strong>Try:</strong> Start LM Studio and load a model
+              </p>
+            `;
+          }
+        } catch (error) {
+          console.error('[Settings] Load defaults error:', error);
+          showFeedback('❌ Auto-configuration failed: ' + error.message, 'error');
+        }
+      });
+    }    // Save settings to backend
     if (saveSettingsBtn) {
       saveSettingsBtn.addEventListener('click', async () => {
         try {
@@ -1698,17 +1825,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     }
 
-    // Load settings when Settings tab is opened
-    const originalSetActiveView = setActiveView;
-    setActiveView = function (viewName) {
-      originalSetActiveView(viewName);
-      if (viewName === 'settings') {
-        console.log('[Settings] Tab activated, loading settings...');
-        loadSettings();
-        refreshKeepAliveStatus();  // Also refresh keep-alive status
-      }
-    };
-
     // ========================================================================
     // KEEP-ALIVE CONTROL HANDLERS
     // ========================================================================
@@ -1723,9 +1839,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     const keepAliveLogs = document.getElementById('keepalive-logs');
     const globalStatusIndicator = document.getElementById('global-status-indicator');
 
+    console.log('[Keep-Alive] Element check:');
+    console.log('  - globalStatusIndicator:', globalStatusIndicator ? 'FOUND' : 'NOT FOUND');
+    console.log('  - keepAliveStatusIndicator:', keepAliveStatusIndicator ? 'FOUND' : 'NOT FOUND');
+    console.log('  - keepAliveStatusText:', keepAliveStatusText ? 'FOUND' : 'NOT FOUND');
+
     // Update status display
     function updateKeepAliveStatus(status) {
-      if (!keepAliveStatusIndicator || !keepAliveStatusText) return;
+      console.log('[Keep-Alive] updateKeepAliveStatus called with:', status);
+      console.log('[Keep-Alive] status.status =', status.status);
 
       const statusMap = {
         running: { indicator: '🟢', text: 'Running', global: '🟢 Connected', tooltip: 'Keep-Alive Status: Running. Click to view details.' },
@@ -1735,15 +1857,26 @@ document.addEventListener("DOMContentLoaded", async () => {
       };
 
       const config = statusMap[status.status] || statusMap.stopped;
-      keepAliveStatusIndicator.textContent = config.indicator;
-      keepAliveStatusText.textContent = config.text;
+      console.log('[Keep-Alive] Selected config:', config);
 
-      // Update global indicator
+      // ALWAYS update global indicator first (it's always visible in the top bar)
       if (globalStatusIndicator) {
+        console.log('[Keep-Alive] Updating global indicator to:', config.global);
         const [dot, text] = config.global.split(' ');
         globalStatusIndicator.querySelector('.status-dot').textContent = dot;
         globalStatusIndicator.querySelector('.status-text').textContent = text;
         globalStatusIndicator.setAttribute('title', config.tooltip);
+        console.log('[Keep-Alive] Global indicator updated successfully');
+      } else {
+        console.error('[Keep-Alive] ERROR: globalStatusIndicator element not found!');
+      }
+
+      // Update Settings tab elements if they exist (may not be loaded yet)
+      if (keepAliveStatusIndicator) {
+        keepAliveStatusIndicator.textContent = config.indicator;
+      }
+      if (keepAliveStatusText) {
+        keepAliveStatusText.textContent = config.text;
       }
 
       // Update uptime
@@ -1796,12 +1929,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Refresh status from server
     async function refreshKeepAliveStatus() {
       try {
+        console.log('[Keep-Alive] Refreshing status from API...');
         const status = await API.getKeepAliveStatus();
+        console.log('[Keep-Alive] API response:', status);
+
         if (status) {
           updateKeepAliveStatus(status);
           if (status.logs && status.logs.length > 0) {
             updateKeepAliveLogs(status.logs);
           }
+        } else {
+          console.warn('[Keep-Alive] API returned null - keeping current status');
         }
       } catch (error) {
         console.error('[Keep-Alive] Failed to refresh status:', error);
@@ -1881,6 +2019,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Initial status check
     refreshKeepAliveStatus();
 
+    // Load settings when Settings tab is opened (hook after functions are defined)
+    const originalSetActiveView = setActiveView;
+    setActiveView = function (viewName) {
+      originalSetActiveView(viewName);
+      if (viewName === 'settings') {
+        console.log('[Settings] Tab activated, loading settings...');
+        loadSettings();
+        refreshKeepAliveStatus();  // Also refresh keep-alive status
+      }
+    };
+
     // END SETTINGS TAB INITIALIZATION
 
     // Load live data after a brief delay
@@ -1901,6 +2050,149 @@ document.addEventListener("DOMContentLoaded", async () => {
         console.warn('[Keepalive] Ping failed - server may be down', error);
       }
     }, 5 * 60 * 1000); // 5 minutes
+
+    // ============================================================================
+    // HEALING STATUS & KNOWLEDGE BASE AUTO-REFRESH
+    // (Merged from dashboard-enhancements.js to eliminate duplicate file)
+    // ============================================================================
+
+    // Update healing status from server
+    async function updateHealingStatus() {
+      try {
+        const response = await fetch(`${API.BASE_URL}/api/healing/status`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Update healing toggle based on server state
+        const healingToggle = document.getElementById('healing-toggle');
+        if (healingToggle && data.enabled !== undefined) {
+          healingToggle.checked = data.enabled;
+        }
+
+        // Update healing status indicator
+        const statusIndicator = document.querySelector('.healing-status-indicator');
+        if (statusIndicator) {
+          const statusText = data.enabled ?
+            (data.is_processing ? '🔄 Processing' : '✅ Active') :
+            '⏸️ Paused';
+          statusIndicator.textContent = statusText;
+          statusIndicator.className = `healing-status-indicator ${data.enabled ? 'active' : 'paused'}`;
+        }
+
+        // Update current healing info if processing
+        const currentHealing = document.querySelector('.current-healing-info');
+        if (currentHealing) {
+          if (data.is_processing && data.current_envelope) {
+            currentHealing.innerHTML = `
+              <div class="healing-detail">
+                <span class="label">Processing:</span>
+                <span class="value">${escapeHtml(data.current_envelope)}</span>
+              </div>
+              <div class="healing-detail">
+                <span class="label">Started:</span>
+                <span class="value">${new Date(data.processing_start).toLocaleTimeString()}</span>
+              </div>
+            `;
+            currentHealing.style.display = 'block';
+          } else {
+            currentHealing.style.display = 'none';
+          }
+        }
+
+      } catch (error) {
+        console.warn('[Healing Status] Update failed:', error);
+        // Don't spam console with errors during normal operation
+      }
+    }
+
+    // Update knowledge base display
+    async function updateKnowledgeBase() {
+      try {
+        const response = await fetch(`${API.BASE_URL}/api/knowledge/patterns`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const patterns = await response.json();
+
+        // Update knowledge base stats
+        const kbStats = document.querySelector('.kb-stats');
+        if (kbStats) {
+          const uniquePatterns = patterns.length;
+          const totalSuccesses = patterns.reduce((sum, p) => sum + (p.success_count || 0), 0);
+
+          kbStats.innerHTML = `
+            <div class="kb-stat">
+              <span class="kb-stat-label">Patterns:</span>
+              <span class="kb-stat-value">${uniquePatterns}</span>
+            </div>
+            <div class="kb-stat">
+              <span class="kb-stat-label">Total Successes:</span>
+              <span class="kb-stat-value">${totalSuccesses}</span>
+            </div>
+          `;
+        }
+
+        // Update pattern list
+        const patternList = document.querySelector('.pattern-list');
+        if (patternList && patterns.length > 0) {
+          patternList.innerHTML = patterns
+            .sort((a, b) => (b.success_count || 0) - (a.success_count || 0)) // Sort by success count
+            .slice(0, 10) // Show top 10
+            .map(pattern => `
+              <div class="pattern-item">
+                <div class="pattern-header">
+                  <span class="pattern-name">${escapeHtml(pattern.pattern_name || 'Unknown')}</span>
+                  <span class="pattern-count">${pattern.success_count || 0}× used</span>
+                </div>
+                <div class="pattern-description">
+                  ${escapeHtml(pattern.error_type || 'No description')}
+                </div>
+                ${pattern.last_success ? `
+                  <div class="pattern-meta">
+                    Last used: ${new Date(pattern.last_success).toLocaleString()}
+                  </div>
+                ` : ''}
+              </div>
+            `).join('');
+        } else if (patternList) {
+          patternList.innerHTML = '<div class="no-patterns">No patterns learned yet</div>';
+        }
+
+      } catch (error) {
+        console.warn('[Knowledge Base] Update failed:', error);
+      }
+    }
+
+    // Helper to escape HTML (prevent XSS)
+    function escapeHtml(unsafe) {
+      if (!unsafe) return '';
+      return unsafe
+        .toString()
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    // Start auto-refresh intervals for healing status and knowledge base
+    console.log('[Auto-Refresh] Starting healing status updates (every 2s)');
+    setInterval(updateHealingStatus, 2000); // Update every 2 seconds
+
+    console.log('[Auto-Refresh] Starting knowledge base updates (every 10s)');
+    setInterval(updateKnowledgeBase, 10000); // Update every 10 seconds
+
+    // Initial updates
+    updateHealingStatus();
+    updateKnowledgeBase();
+
+    // ============================================================================
+    // END MERGED CODE FROM dashboard-enhancements.js
+    // ============================================================================
 
   } catch (error) {
     console.error('Dashboard initialization failed:', error);

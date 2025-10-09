@@ -3,6 +3,7 @@ from flask_cors import CORS
 import time
 import os
 import sys
+import json
 import asyncio
 import threading
 import signal
@@ -76,6 +77,17 @@ def not_found(error):
 def internal_error(error):
     logger.error(f"Internal server error: {error}")
     return jsonify({"error": "Internal server error"}), 500
+
+# Global exception handler
+@app.errorhandler(Exception)
+def handle_exception(e):
+    logger.error(f"Unhandled exception: {e}")
+    logger.error(traceback.format_exc())
+    return jsonify({
+        "error": "An unexpected error occurred",
+        "type": type(e).__name__,
+        "message": str(e)
+    }), 500
 
 # Health check endpoint
 @app.route('/health', methods=['GET'])
@@ -328,8 +340,8 @@ def heartbeat():
     })
 
 @app.route('/keepalive', methods=['GET'])
-def keepalive():
-    """Keepalive endpoint to prevent server timeout"""
+def server_keepalive():
+    """Simple server ping endpoint (use /api/keepalive/status for LLM Keep-Alive status)"""
     return jsonify({"alive": True, "timestamp": time.time()})
 
 @app.route('/extensions/<id>/enable', methods=['POST'])
@@ -462,10 +474,34 @@ def get_llm_presets():
         ]
     })
 
+@app.route('/api/llm/defaults', methods=['GET'])
+def get_llm_defaults():
+    """Get default LLM settings from config.default.json"""
+    try:
+        config_file = Path(__file__).parent / "config.default.json"
+        if config_file.exists():
+            with open(config_file, "r") as f:
+                config = json.load(f)
+                if "llm" in config:
+                    return jsonify(config["llm"])
+        
+        # Fallback to built-in defaults
+        from llm_settings import DEFAULT_SETTINGS
+        return jsonify(DEFAULT_SETTINGS)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Keep-Alive Background Thread
 async def keepalive_loop(stop_event, interval):
     """Background loop that pings LLM provider to keep connection alive"""
+    global keepalive_state
     import aiohttp
+    
+    # Set status to running when loop starts
+    keepalive_state["running"] = True
+    keepalive_state["status"] = "running"
+    keepalive_state["start_time"] = datetime.now().isoformat()
+    print(f"[Keep-Alive] Loop started, state updated - running={keepalive_state['running']}, status={keepalive_state['status']}, id={id(keepalive_state)}")
     
     while not stop_event.is_set():
         try:
@@ -564,11 +600,33 @@ def run_keepalive_thread(interval):
         loop.close()
 
 
+def _start_keepalive_internal(interval=None):
+    """Internal function to start Keep-Alive thread (used by API and heartbeat)"""
+    if interval is None:
+        settings = load_llm_settings()
+        interval = settings.get("keep_alive_interval", 300)
+    
+    stop_event = threading.Event()
+    thread = threading.Thread(
+        target=run_keepalive_thread,
+        args=(interval,),
+        daemon=True,
+        name="KeepAliveThread"
+    )
+    
+    # Store thread and stop_event references
+    keepalive_state["thread"] = thread
+    keepalive_state["stop_event"] = stop_event
+    
+    # Thread will set running=True, status="running", start_time when loop starts
+    thread.start()
+    
+    return interval
+
+
 @app.route('/api/keepalive/start', methods=['POST'])
 def start_keepalive():
     """Start the keep-alive background thread"""
-    global keepalive_state
-    
     if keepalive_state["running"]:
         return jsonify({
             "ok": False,
@@ -577,21 +635,7 @@ def start_keepalive():
         }), 400
     
     try:
-        # Get interval from settings
-        settings = get_llm_settings_for_client()
-        interval = settings.get("keep_alive_interval", 300)  # Default 5 minutes
-        
-        # Create and start thread
-        keepalive_state["running"] = True
-        keepalive_state["status"] = "starting"
-        keepalive_state["start_time"] = datetime.now().isoformat()
-        keepalive_state["stop_event"] = None
-        
-        thread = threading.Thread(target=run_keepalive_thread, args=(interval,), daemon=True)
-        thread.start()
-        
-        keepalive_state["thread"] = thread
-        
+        interval = _start_keepalive_internal()
         return jsonify({
             "ok": True,
             "message": f"Keep-alive started with {interval}s interval",
@@ -635,6 +679,9 @@ def stop_keepalive():
 @app.route('/api/keepalive/status', methods=['GET'])
 def get_keepalive_status():
     """Get keep-alive status and recent logs"""
+    # DEBUG: Log the current state
+    print(f"[DEBUG] get_keepalive_status called - state: running={keepalive_state['running']}, status={keepalive_state['status']}, logs_count={len(keepalive_state['logs'])}, id={id(keepalive_state)}")
+    
     uptime = None
     if keepalive_state["start_time"] and keepalive_state["running"]:
         start = datetime.fromisoformat(keepalive_state["start_time"])
@@ -659,11 +706,66 @@ def get_keepalive_logs():
         "logs": list(keepalive_state["logs"])
     })
 
+
+def heartbeat_monitor():
+    """Monitor and auto-restart Keep-Alive if it stops unexpectedly."""
+    logger.info("Heartbeat monitor started (30s interval)")
+    
+    while not shutdown_flag.is_set():
+        try:
+            time.sleep(30)
+            
+            settings = load_llm_settings()
+            should_run = settings.get('enabled') and settings.get('keep_alive')
+            
+            if should_run:
+                is_running = keepalive_state.get("running", False)
+                thread = keepalive_state.get("thread")
+                thread_alive = thread and thread.is_alive() if thread else False
+                
+                if not is_running or not thread_alive:
+                    logger.warning("Keep-Alive stopped unexpectedly - restarting...")
+                    
+                    if keepalive_state.get("stop_event"):
+                        keepalive_state["stop_event"].set()
+                    
+                    _start_keepalive_internal()
+                    logger.info("Keep-Alive restarted")
+                else:
+                    logger.debug("Keep-Alive healthy")
+            else:
+                logger.debug("Keep-Alive disabled")
+                
+        except Exception as e:
+            logger.error(f"Heartbeat monitor error: {e}")
+            continue
+
+
 if __name__ == '__main__':
     import sys
     
     # Set start time for health check
     app.config['START_TIME'] = time.time()
+    
+    # Start heartbeat monitor
+    logger.info("Starting heartbeat monitor...")
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_monitor,
+        daemon=True,
+        name="HeartbeatMonitor"
+    )
+    heartbeat_thread.start()
+    
+    # Initial auto-start of Keep-Alive
+    try:
+        settings = load_llm_settings()
+        if settings.get('enabled') and settings.get('keep_alive'):
+            logger.info("Auto-starting Keep-Alive...")
+            interval = _start_keepalive_internal()
+            logger.info(f"Keep-Alive started ({interval}s interval)")
+    except Exception as e:
+        logger.warning(f"Could not auto-start Keep-Alive: {e}")
+        logger.info("Heartbeat will attempt restart in 30 seconds")
     
     # Setup graceful shutdown
     def signal_handler(sig, frame):

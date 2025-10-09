@@ -16,6 +16,7 @@ from pathlib import Path
 SETTINGS_DIR = Path(__file__).parent / "artifacts"
 SETTINGS_FILE = SETTINGS_DIR / "llm_settings.json"
 KEY_FILE = SETTINGS_DIR / ".llm_key"
+CONFIG_DEFAULT = Path(__file__).parent / "config.default.json"
 
 # Default settings with LM Studio preconfigured
 DEFAULT_SETTINGS = {
@@ -31,6 +32,19 @@ DEFAULT_SETTINGS = {
     "enabled": True,
     "last_updated": None
 }
+
+
+def _load_default_config() -> Dict[str, Any]:
+    """Load defaults from config.default.json if it exists"""
+    if CONFIG_DEFAULT.exists():
+        try:
+            with open(CONFIG_DEFAULT, "r") as f:
+                config = json.load(f)
+                if "llm" in config:
+                    return config["llm"]
+        except Exception as e:
+            print(f"Could not load config.default.json: {e}")
+    return DEFAULT_SETTINGS.copy()
 
 
 def _get_or_create_key() -> bytes:
@@ -103,8 +117,8 @@ def load_llm_settings() -> Dict[str, Any]:
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     
     if not SETTINGS_FILE.exists():
-        # Create default settings
-        settings = DEFAULT_SETTINGS.copy()
+        # Load defaults from config.default.json or built-in defaults
+        settings = _load_default_config()
         settings["last_updated"] = datetime.now().isoformat()
         save_llm_settings(settings)
         return settings
@@ -114,12 +128,12 @@ def load_llm_settings() -> Dict[str, Any]:
             settings = json.load(f)
         
         # Merge with defaults to handle new fields
-        merged = DEFAULT_SETTINGS.copy()
+        merged = _load_default_config()
         merged.update(settings)
         return merged
     except Exception as e:
         print(f"Error loading settings: {e}")
-        return DEFAULT_SETTINGS.copy()
+        return _load_default_config()
 
 
 def save_llm_settings(settings: Dict[str, Any]) -> bool:
