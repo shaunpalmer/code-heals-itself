@@ -335,6 +335,88 @@ def as_envelope_dict(obj: Any) -> Dict[str, Any]:
         return obj
     raise TypeError("Unsupported envelope object type")
 
+# 15) detect_stuck_pattern (ReBanker pattern analysis for scope widening)
+
+def detect_stuck_pattern(history: List[Dict[str, Any]], tolerance: int = 5) -> Optional[Dict[str, Any]]:
+    """
+    Detect if healing attempts are stuck at the same line/area (scope widening needed).
+    
+    This addresses the "can't see the forest for the trees" problem:
+    - Error reported on line 1624
+    - We keep fixing line 1624, but it keeps failing
+    - Real issue: private method on line 1580, or class-level visibility
+    - Human strategy: widen scope to full class/module
+    
+    Args:
+        history: List of envelope dicts with rebanker_raw data
+        tolerance: Line number tolerance (±N lines considered "same area")
+        
+    Returns:
+        Dict with scope widening recommendation if stuck pattern detected:
+        {
+            "stuck": True,
+            "line": int,
+            "stuck_count": int,
+            "message": str,
+            "strategy": "widen_scope"
+        }
+        Returns None if no stuck pattern detected
+        
+    Example:
+        >>> history = [
+        ...     {"metadata": {"rebanker_raw": {"line": 1624, "status": "error"}}},
+        ...     {"metadata": {"rebanker_raw": {"line": 1623, "status": "error"}}},
+        ...     {"metadata": {"rebanker_raw": {"line": 1625, "status": "error"}}}
+        ... ]
+        >>> result = detect_stuck_pattern(history)
+        >>> result["stuck"]
+        True
+        >>> result["line"]
+        1624
+    """
+    if len(history) < 3:
+        return None
+    
+    # Extract line numbers from rebanker_raw
+    line_numbers = []
+    for envelope in history:
+        metadata = envelope.get("metadata", {})
+        rebanker_raw = metadata.get("rebanker_raw", {})
+        
+        # Skip clean or missing data
+        if not isinstance(rebanker_raw, dict):
+            continue
+        if rebanker_raw.get("status") == "clean":
+            continue
+            
+        line = rebanker_raw.get("line")
+        if line is not None:
+            line_numbers.append(int(line))
+    
+    if len(line_numbers) < 3:
+        return None
+    
+    # Check if stuck on same line (±tolerance lines)
+    # Example: [1624, 1623, 1625, 1624] with tolerance=5 → all within ±5 of 1624
+    first_line = line_numbers[0]
+    stuck_count = sum(1 for line in line_numbers if abs(line - first_line) <= tolerance)
+    
+    if stuck_count >= 3:
+        return {
+            "stuck": True,
+            "line": first_line,
+            "stuck_count": stuck_count,
+            "message": (
+                f"🔍 SCOPE WIDENING NEEDED: {stuck_count} attempts stuck near line {first_line}. "
+                f"Error may be upstream (private method, class scope, visibility issue). "
+                f"Human strategy: Expand context to include full class/module block."
+            ),
+            "strategy": "widen_scope",
+            "tolerance": tolerance
+        }
+    
+    return None
+
 __all__ = [
     "BreakerState",
     "append_attempt",
@@ -351,5 +433,6 @@ __all__ = [
     "update_counters",
     "add_timeline_entry",
     "run_rebanker",
+    "detect_stuck_pattern",
     "as_envelope_dict",
 ]
