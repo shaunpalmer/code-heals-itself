@@ -312,6 +312,40 @@ class EnvelopeStorage:
                 ON envelopes(status)
             """)
             
+            # 🏆 SUCCESS PATTERNS KNOWLEDGE BASE
+            # Accumulate proven solutions from 95% successful fixes
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS success_patterns (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    error_code TEXT NOT NULL,        -- e.g., "RES.NAME_ERROR"
+                    cluster_id TEXT,                 -- e.g., "RES.NAME_ERROR:requests"
+                    fix_description TEXT,            -- Human-readable fix summary
+                    fix_diff TEXT,                   -- Actual code change (diff)
+                    success_count INTEGER DEFAULT 1, -- Number of times this fix worked
+                    avg_confidence REAL,             -- Average confidence score
+                    tags TEXT,                       -- Comma-separated (GOLD_STANDARD, etc.)
+                    last_success_at TEXT,            -- Last time this fix worked
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(error_code, cluster_id, fix_description)
+                )
+            """)
+            
+            # Indexes for fast pattern matching
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_patterns_error_code 
+                ON success_patterns(error_code)
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_patterns_cluster_id 
+                ON success_patterns(cluster_id)
+            """)
+            
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_patterns_tags 
+                ON success_patterns(tags)
+            """)
+            
             conn.commit()
     
     @contextmanager
@@ -340,46 +374,74 @@ class EnvelopeStorage:
         # 2. Also persist to SQLite (background - survives restarts)
         try:
             with self._get_connection() as conn:
-            # Extract key fields
-            patch_id = envelope_data.get("patch_id", f"unknown_{datetime.now().timestamp()}")
-            
-            # Map action to status
-            status_map = {
-                "PROMOTE": "PROMOTED",
-                "REJECT": "REJECTED",
-                "RETRY": "RETRY",
-                "PENDING": "PENDING"
-            }
-            status = status_map.get(action, action)
-            
-            # Extract metadata
-            metadata = envelope_data.get("metadata", {})
-            confidence = metadata.get("confidence", {})
-            overall_confidence = (
-                confidence.get("overall") if isinstance(confidence, dict) 
-                else confidence
-            )
-            
-            timestamp = envelope_data.get("timestamp", datetime.now().isoformat())
-            breaker_state = envelope_data.get("breakerState", "UNKNOWN")
-            cascade_depth = envelope_data.get("cascadeDepth", 0)
-            
-            # Insert or replace envelope
-            conn.execute("""
-                INSERT OR REPLACE INTO envelopes 
-                (patch_id, status, timestamp, confidence, breaker_state, cascade_depth, envelope_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                patch_id,
-                status,
-                timestamp,
-                overall_confidence,
-                breaker_state,
-                cascade_depth,
-                json.dumps(envelope_data)
-            ))
-            
-            conn.commit()
+                # Extract key fields
+                patch_id = envelope_data.get("patch_id", f"unknown_{datetime.now().timestamp()}")
+                
+                # Map action to status
+                status_map = {
+                    "PROMOTE": "PROMOTED",
+                    "REJECT": "REJECTED",
+                    "RETRY": "RETRY",
+                    "PENDING": "PENDING"
+                }
+                status = status_map.get(action, action)
+                
+                # Extract metadata
+                metadata = envelope_data.get("metadata", {})
+                confidence = metadata.get("confidence", {})
+                overall_confidence = (
+                    confidence.get("overall") if isinstance(confidence, dict) 
+                    else confidence
+                )
+                
+                timestamp = envelope_data.get("timestamp", datetime.now().isoformat())
+                breaker_state = envelope_data.get("breakerState", "UNKNOWN")
+                cascade_depth = envelope_data.get("cascadeDepth", 0)
+                
+                # Insert or replace envelope
+                conn.execute("""
+                    INSERT OR REPLACE INTO envelopes 
+                    (patch_id, status, timestamp, confidence, breaker_state, cascade_depth, envelope_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    patch_id,
+                    status,
+                    timestamp,
+                    overall_confidence,
+                    breaker_state,
+                    cascade_depth,
+                    json.dumps(envelope_data)
+                ))
+                
+                conn.commit()
+                
+                # 🏆 KNOWLEDGE BASE ACCUMULATION: Save successful fixes
+                # When PROMOTE with confidence >= 0.7, add to success patterns
+                if action == "PROMOTE" and overall_confidence and overall_confidence >= 0.7:
+                    rebanker_raw = metadata.get("rebanker_raw", {})
+                    error_code = rebanker_raw.get("code")
+                    cluster_id = rebanker_raw.get("cluster_id")
+                    
+                    if error_code:
+                        # Generate fix description from patch
+                        patch = envelope_data.get("patch", {})
+                        fix_description = f"Fix for {error_code}"
+                        if "description" in patch:
+                            fix_description = patch["description"][:200]  # Truncate
+                        
+                        # Get diff (if available)
+                        fix_diff = patch.get("diff", "")
+                        
+                        try:
+                            self.save_success_pattern(
+                                error_code=error_code,
+                                cluster_id=cluster_id,
+                                fix_description=fix_description,
+                                fix_diff=fix_diff,
+                                confidence=overall_confidence
+                            )
+                        except Exception as e:
+                            print(f"Warning: Failed to save success pattern: {e}")
         except Exception as e:
             # Don't fail if SQLite write fails - memory queue still has it!
             print(f"Warning: SQLite write failed (memory queue still intact): {e}")
@@ -400,28 +462,28 @@ class EnvelopeStorage:
         # Memory doesn't have enough - query SQLite for full history
         try:
             with self._get_connection() as conn:
-            cursor = conn.execute("""
-                SELECT envelope_json, status, timestamp
-                FROM envelopes
-                ORDER BY timestamp DESC
-                LIMIT ?
-            """, (limit,))
-            
-            envelopes = []
-            for row in cursor:
-                envelope = json.loads(row["envelope_json"])
+                cursor = conn.execute("""
+                    SELECT envelope_json, status, timestamp
+                    FROM envelopes
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """, (limit,))
                 
-                # Transform to dashboard format
-                envelopes.append({
-                    "summary": f"Envelope {envelope.get('patch_id', 'unknown')} (python)",
-                    "status": row["status"],
-                    "timestamp": row["timestamp"],
-                    "confidence": envelope.get("metadata", {}).get("confidence", {}).get("overall", 0),
-                    "breaker": f"{envelope.get('breakerState', 'unknown')} breaker",
-                    "payload": envelope
-                })
-            
-            return envelopes
+                envelopes = []
+                for row in cursor:
+                    envelope = json.loads(row["envelope_json"])
+                    
+                    # Transform to dashboard format
+                    envelopes.append({
+                        "summary": f"Envelope {envelope.get('patch_id', 'unknown')} (python)",
+                        "status": row["status"],
+                        "timestamp": row["timestamp"],
+                        "confidence": envelope.get("metadata", {}).get("confidence", {}).get("overall", 0),
+                        "breaker": f"{envelope.get('breakerState', 'unknown')} breaker",
+                        "payload": envelope
+                    })
+                
+                return envelopes
         except Exception as e:
             # If SQLite fails, at least return memory envelopes
             print(f"Warning: SQLite read failed, returning memory envelopes: {e}")
@@ -442,40 +504,40 @@ class EnvelopeStorage:
         # Fall back to SQLite for full 24-hour history
         try:
             with self._get_connection() as conn:
-            # Total healing attempts (last 24 hours)
-            cursor = conn.execute("""
-                SELECT 
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'PROMOTED' THEN 1 ELSE 0 END) as promoted,
-                    SUM(CASE WHEN status = 'RETRY' THEN 1 ELSE 0 END) as pending
-                FROM envelopes
-                WHERE datetime(timestamp) > datetime('now', '-24 hours')
-            """)
-            
-            row = cursor.fetchone()
-            total = row["total"] or 1  # Avoid division by zero
-            promoted = row["promoted"] or 0
-            pending = row["pending"] or 0
-            
-            # Calculate success rate
-            healing_success = int((promoted / total) * 100) if total > 0 else 0
-            
-            # Get latest breaker status
-            cursor = conn.execute("""
-                SELECT breaker_state
-                FROM envelopes
-                ORDER BY timestamp DESC
-                LIMIT 1
-            """)
-            
-            row = cursor.fetchone()
-            breaker_status = row["breaker_state"] if row else "steady"
-            
-            return {
-                "healingSuccess": healing_success,
-                "breakerStatus": breaker_status.lower() if breaker_status else "steady",
-                "pendingReviews": pending,
-                "source": "sqlite"  # Flag to indicate this came from disk
+                # Total healing attempts (last 24 hours)
+                cursor = conn.execute("""
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN status = 'PROMOTED' THEN 1 ELSE 0 END) as promoted,
+                        SUM(CASE WHEN status = 'RETRY' THEN 1 ELSE 0 END) as pending
+                    FROM envelopes
+                    WHERE datetime(timestamp) > datetime('now', '-24 hours')
+                """)
+                
+                row = cursor.fetchone()
+                total = row["total"] or 1  # Avoid division by zero
+                promoted = row["promoted"] or 0
+                pending = row["pending"] or 0
+                
+                # Calculate success rate
+                healing_success = int((promoted / total) * 100) if total > 0 else 0
+                
+                # Get latest breaker status
+                cursor = conn.execute("""
+                    SELECT breaker_state
+                    FROM envelopes
+                    ORDER BY timestamp DESC
+                    LIMIT 1
+                """)
+                
+                row = cursor.fetchone()
+                breaker_status = row["breaker_state"] if row else "steady"
+                
+                return {
+                    "healingSuccess": healing_success,
+                    "breakerStatus": breaker_status.lower() if breaker_status else "steady",
+                    "pendingReviews": pending,
+                    "source": "sqlite"  # Flag to indicate this came from disk
             }
         except Exception as e:
             # If both memory and SQLite fail, return safe defaults
@@ -498,6 +560,83 @@ class EnvelopeStorage:
             conn.commit()
             return cursor.rowcount
     
+    def garbage_collect_patterns(self, strategy: str = "conservative") -> Dict[str, int]:
+        """
+        Clean up low-value success patterns to prevent database bloat.
+        
+        Philosophy: Keep patterns that ACTUALLY HELP, discard one-off flukes.
+        
+        CRITICAL: NEVER delete high-value patterns, even if old!
+          - success_count >= 10 → PROTECTED (proven winner)
+          - GOLD_STANDARD tag → PROTECTED (high quality)
+          - success_count >= 5 AND used within 1 year → PROTECTED
+        
+        Strategies:
+        - conservative: Delete patterns with success_count=1 and last_success > 90 days
+        - aggressive: Delete patterns with success_count < 3 and last_success > 60 days
+        - nuclear: Delete patterns with success_count < 5 (EXCEPT protected patterns)
+        
+        Returns:
+            Dict with deleted_count, remaining_count, protected_count
+        """
+        with self._get_connection() as conn:
+            if strategy == "conservative":
+                # One-offs that haven't been used in 90 days → DELETE
+                # BUT: Never delete if success_count >= 10 or GOLD_STANDARD
+                cursor = conn.execute("""
+                    DELETE FROM success_patterns
+                    WHERE success_count = 1 
+                      AND datetime(last_success_at) < datetime('now', '-90 days')
+                      AND success_count < 10
+                      AND (tags NOT LIKE '%GOLD_STANDARD%' OR tags IS NULL)
+                """)
+            
+            elif strategy == "aggressive":
+                # Low-usage patterns (< 3 successes) older than 60 days → DELETE
+                # BUT: Protect proven winners (>= 10 successes)
+                cursor = conn.execute("""
+                    DELETE FROM success_patterns
+                    WHERE success_count < 3 
+                      AND datetime(last_success_at) < datetime('now', '-60 days')
+                      AND success_count < 10
+                      AND (tags NOT LIKE '%GOLD_STANDARD%' OR tags IS NULL)
+                """)
+            
+            elif strategy == "nuclear":
+                # Keep only proven winners (≥ 5 successes) → DELETE rest
+                # BUT: ALWAYS protect high-value patterns (>= 10 or GOLD_STANDARD)
+                cursor = conn.execute("""
+                    DELETE FROM success_patterns
+                    WHERE success_count < 5
+                      AND success_count < 10
+                      AND (tags NOT LIKE '%GOLD_STANDARD%' OR tags IS NULL)
+                """)
+            
+            else:
+                raise ValueError(f"Unknown strategy: {strategy}")
+            
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            # Count remaining patterns
+            cursor = conn.execute("SELECT COUNT(*) FROM success_patterns")
+            remaining_count = cursor.fetchone()[0]
+            
+            # Count protected high-value patterns (never deleted)
+            cursor = conn.execute("""
+                SELECT COUNT(*) FROM success_patterns
+                WHERE success_count >= 10 OR tags LIKE '%GOLD_STANDARD%'
+            """)
+            protected_count = cursor.fetchone()[0]
+            
+            return {
+                "deleted_count": deleted_count,
+                "remaining_count": remaining_count,
+                "protected_count": protected_count,
+                "strategy": strategy
+            }
+            return cursor.rowcount
+    
     def get_memory_stats(self) -> Dict[str, Any]:
         """
         Get statistics about in-memory queue
@@ -510,6 +649,212 @@ class EnvelopeStorage:
             "max_memory_size": self.memory_queue.max_size,
             "memory_percentage": int((self.memory_queue.size() / self.memory_queue.max_size) * 100)
         }
+    
+    # ========================================================================
+    # 🏆 SUCCESS PATTERNS KNOWLEDGE BASE
+    # ========================================================================
+    
+    def save_success_pattern(
+        self, 
+        error_code: str, 
+        cluster_id: Optional[str],
+        fix_description: str,
+        fix_diff: str,
+        confidence: float
+    ) -> None:
+        """
+        Save a successful fix pattern to the knowledge base.
+        Called when an envelope is PROMOTED with high confidence.
+        
+        Args:
+            error_code: Canonical error code (e.g., "RES.NAME_ERROR")
+            cluster_id: Specific cluster (e.g., "RES.NAME_ERROR:requests")
+            fix_description: Human-readable summary of the fix
+            fix_diff: Actual code change (unified diff)
+            confidence: Confidence score for this fix (0.0-1.0)
+        """
+        # Auto-tag based on confidence thresholds
+        tags = []
+        if confidence >= 0.9:
+            tags.append("GOLD_STANDARD")
+        elif confidence >= 0.8:
+            tags.append("HIGH_CONFIDENCE")
+        elif confidence >= 0.7:
+            tags.append("VERIFIED")
+        
+        tags_str = ",".join(tags)
+        
+        with self._get_connection() as conn:
+            # Try to update existing pattern (increment success_count)
+            cursor = conn.execute("""
+                SELECT id, success_count, avg_confidence 
+                FROM success_patterns 
+                WHERE error_code = ? AND cluster_id = ? AND fix_description = ?
+            """, (error_code, cluster_id or "", fix_description))
+            
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing pattern (running average)
+                pattern_id = existing[0]
+                old_count = existing[1]
+                old_avg = existing[2]
+                
+                new_count = old_count + 1
+                new_avg = ((old_avg * old_count) + confidence) / new_count
+                
+                conn.execute("""
+                    UPDATE success_patterns 
+                    SET success_count = ?, 
+                        avg_confidence = ?,
+                        tags = ?,
+                        last_success_at = datetime('now')
+                    WHERE id = ?
+                """, (new_count, new_avg, tags_str, pattern_id))
+            else:
+                # Insert new pattern
+                conn.execute("""
+                    INSERT INTO success_patterns 
+                    (error_code, cluster_id, fix_description, fix_diff, 
+                     success_count, avg_confidence, tags, last_success_at)
+                    VALUES (?, ?, ?, ?, 1, ?, ?, datetime('now'))
+                """, (error_code, cluster_id or "", fix_description, fix_diff, confidence, tags_str))
+            
+            conn.commit()
+    
+    def get_similar_success_patterns(
+        self,
+        error_code: Optional[str] = None,
+        cluster_id: Optional[str] = None,
+        limit: int = 5,
+        min_confidence: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Query knowledge base for similar successful fixes with intelligent fallback.
+        
+        Strategy:
+        1. Try cluster_id (most specific, e.g., "RES.NAME_ERROR:requests")
+        2. If < limit results, fall back to error_code (broader, e.g., "RES.NAME_ERROR")
+        3. If still < limit, fall back to error family (e.g., "RES.*")
+        4. If still empty, return [] → LLM uses base knowledge + scope widening
+        
+        Args:
+            error_code: Error code to match (e.g., "RES.NAME_ERROR")
+            cluster_id: Cluster to match (e.g., "RES.NAME_ERROR:requests")
+            limit: Max number of patterns to return
+            min_confidence: Minimum confidence threshold (0.0-1.0)
+            
+        Returns:
+            List of pattern dicts ordered by success_count DESC, with fallback_level indicator
+        """
+        if not error_code and not cluster_id:
+            return []
+        
+        patterns = []
+        seen = set()  # Track unique patterns by (cluster_id, fix_description)
+        
+        with self._get_connection() as conn:
+            # 🎯 Level 1: Try cluster_id (most specific)
+            if cluster_id:
+                cursor = conn.execute("""
+                    SELECT error_code, cluster_id, fix_description, fix_diff,
+                           success_count, avg_confidence, tags, last_success_at
+                    FROM success_patterns
+                    WHERE cluster_id = ? AND avg_confidence >= ?
+                    ORDER BY success_count DESC, avg_confidence DESC
+                    LIMIT ?
+                """, (cluster_id, min_confidence, limit))
+                
+                rows = cursor.fetchall()
+                for row in rows:
+                    key = (row[1], row[2])  # (cluster_id, fix_description)
+                    if key not in seen:
+                        seen.add(key)
+                        pattern = self._row_to_pattern(row)
+                        pattern["fallback_level"] = "cluster"
+                        patterns.append(pattern)
+            
+            # 🔄 Level 2: Fall back to error_code if not enough results
+            if len(patterns) < limit and error_code:
+                cursor = conn.execute("""
+                    SELECT error_code, cluster_id, fix_description, fix_diff,
+                           success_count, avg_confidence, tags, last_success_at
+                    FROM success_patterns
+                    WHERE error_code = ? AND avg_confidence >= ?
+                    ORDER BY success_count DESC, avg_confidence DESC
+                    LIMIT ?
+                """, (error_code, min_confidence, limit))
+                
+                rows = cursor.fetchall()
+                for row in rows:
+                    key = (row[1], row[2])  # (cluster_id, fix_description)
+                    if key not in seen and len(patterns) < limit:
+                        seen.add(key)
+                        pattern = self._row_to_pattern(row)
+                        pattern["fallback_level"] = "error_code"
+                        patterns.append(pattern)
+            
+            # 🌐 Level 3: Fall back to error family (e.g., "RES.*")
+            if len(patterns) < limit and error_code and "." in error_code:
+                family = error_code.split(".")[0]  # Extract "RES" from "RES.NAME_ERROR"
+                cursor = conn.execute("""
+                    SELECT error_code, cluster_id, fix_description, fix_diff,
+                           success_count, avg_confidence, tags, last_success_at
+                    FROM success_patterns
+                    WHERE error_code LIKE ? AND avg_confidence >= ?
+                    ORDER BY success_count DESC, avg_confidence DESC
+                    LIMIT ?
+                """, (f"{family}.%", min_confidence, limit))
+                
+                rows = cursor.fetchall()
+                for row in rows:
+                    key = (row[1], row[2])  # (cluster_id, fix_description)
+                    if key not in seen and len(patterns) < limit:
+                        seen.add(key)
+                        pattern = self._row_to_pattern(row)
+                        pattern["fallback_level"] = "family"
+                        patterns.append(pattern)
+            
+            return patterns
+    
+    def _row_to_pattern(self, row) -> Dict[str, Any]:
+        """Convert SQLite row to pattern dict"""
+        return {
+            "error_code": row[0],
+            "cluster_id": row[1],
+            "fix_description": row[2],
+            "fix_diff": row[3],
+            "success_count": row[4],
+            "avg_confidence": row[5],
+            "tags": row[6].split(",") if row[6] else [],
+            "last_success_at": row[7]
+        }
+    
+    def get_success_stats(self) -> Dict[str, Any]:
+        """
+        Get aggregate statistics about the knowledge base.
+        
+        Returns:
+            Dict with total_patterns, total_successes, gold_standard_count, avg_confidence
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT 
+                    COUNT(*) as total_patterns,
+                    SUM(success_count) as total_successes,
+                    AVG(avg_confidence) as overall_avg_confidence,
+                    SUM(CASE WHEN tags LIKE '%GOLD_STANDARD%' THEN 1 ELSE 0 END) as gold_standard_count
+                FROM success_patterns
+            """)
+            
+            row = cursor.fetchone()
+            
+            return {
+                "total_patterns": row[0] or 0,
+                "total_successes": row[1] or 0,
+                "overall_avg_confidence": round(row[2] or 0.0, 3),
+                "gold_standard_count": row[3] or 0
+            }
 
 
 # Singleton instance for global access
@@ -521,3 +866,4 @@ def get_envelope_storage() -> EnvelopeStorage:
     if _storage_instance is None:
         _storage_instance = EnvelopeStorage()
     return _storage_instance
+

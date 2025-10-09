@@ -243,6 +243,94 @@ class AIDebugger:
             return storage.memory_queue.get_pattern_insights()
         except Exception as e:
             return {"error": str(e)}
+    
+    def _get_success_patterns_context(self, error_code: str = None, cluster_id: str = None) -> str:
+        """
+        Query the success patterns knowledge base for similar fixes.
+        
+        This is THE GAME CHANGER - gives LLM access to proven solutions from past successes!
+        
+        "We've fixed this 47 times before with 95% success rate - here's how"
+        
+        Args:
+            error_code: Canonical error code (e.g., "RES.NAME_ERROR")
+            cluster_id: Specific cluster (e.g., "RES.NAME_ERROR:requests")
+            
+        Returns:
+            String formatted for LLM prompt injection with historical success data
+        """
+        try:
+            storage = get_envelope_storage()
+            
+            # Query knowledge base for similar patterns
+            patterns = storage.get_similar_success_patterns(
+                error_code=error_code,
+                cluster_id=cluster_id,
+                limit=5,  # Top 5 most successful patterns
+                min_confidence=0.7  # Only high-quality fixes
+            )
+            
+            if not patterns:
+                return ""  # No historical data yet - LLM will use base knowledge + scope widening
+            
+            # Get overall stats
+            stats = storage.get_success_stats()
+            
+            # Check fallback level (indicates pattern specificity)
+            fallback_level = patterns[0].get("fallback_level", "unknown") if patterns else "none"
+            
+            # Format for LLM
+            lines = [
+                "\n🏆 === SUCCESS PATTERNS KNOWLEDGE BASE ===",
+                f"Total Proven Solutions: {stats['total_patterns']} patterns, {stats['total_successes']} successful fixes",
+                f"Gold Standards: {stats['gold_standard_count']} high-confidence patterns",
+                f"System Confidence: {stats['overall_avg_confidence']:.0%}",
+                ""
+            ]
+            
+            # Add fallback notice if not exact match
+            if fallback_level == "error_code" or "family" in fallback_level:
+                lines.append("⚠️  NOTICE: Using broader pattern matches (no exact cluster match)")
+                lines.append("   → Consider: Scope widening if patterns don't apply directly")
+                lines.append("")
+            elif fallback_level == "family":
+                lines.append("⚠️  NOTICE: Using error family patterns (very broad)")
+                lines.append("   → RECOMMENDED: Let LLM analyze context + widen scope as needed")
+                lines.append("")
+            
+            lines.append("📚 Similar Fixes from History:")
+            
+            for i, pattern in enumerate(patterns, 1):
+                success_rate = int(pattern['avg_confidence'] * 100)
+                tags_str = ', '.join(pattern['tags'][:3]) if pattern['tags'] else "PROMOTED"
+                
+                lines.append(
+                    f"\n{i}. Pattern: {pattern['cluster_id']}"
+                )
+                lines.append(
+                    f"   ✓ Fixed successfully {pattern['success_count']} times"
+                )
+                lines.append(
+                    f"   ✓ Success rate: {success_rate}% (avg confidence: {pattern['avg_confidence']:.2f})"
+                )
+                lines.append(
+                    f"   ✓ Tags: {tags_str}"
+                )
+                lines.append(
+                    f"   ✓ Strategy: {pattern['fix_description']}"
+                )
+                if pattern.get('difficulty'):
+                    lines.append(
+                        f"   ⚙ Difficulty: {pattern['difficulty']:.1f}/1.0"
+                    )
+            
+            lines.append("\n💡 Recommendation: Apply proven pattern from history")
+            lines.append("=== END SUCCESS PATTERNS ===\n")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            return f"[Success patterns unavailable: {e}]"
 
     # ---------- Public API ----------
     def process_error(
@@ -698,6 +786,17 @@ class AIDebugger:
             envelope_meta = result["envelope"].get("metadata", {})
             cur_raw = envelope_meta.get("rebanker_raw")
             cur_hash = envelope_meta.get("rebanker_hash")
+            
+            # 🏆 SUCCESS PATTERNS INJECTION: On first attempt, query knowledge base
+            if attempt == 1 and cur_raw:
+                error_code = cur_raw.get("code")
+                cluster_id = cur_raw.get("cluster_id")
+                success_context = self._get_success_patterns_context(
+                    error_code=error_code,
+                    cluster_id=cluster_id
+                )
+                if success_context:
+                    chat.add_message("system", success_context, metadata={"phase": "knowledge"})
             
             # 🔒 IMMUTABILITY INVARIANT
             if cur_raw and cur_hash:

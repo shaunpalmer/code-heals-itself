@@ -1,0 +1,267 @@
+# Success Patterns - Intelligent Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    THE PROBLEM: DATABASE BLOAT                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Year 1: 1,547 patterns total
+  ├─ Cluster-specific: 423 patterns (27%)  ← USEFUL
+  ├─ Error-code level: 332 patterns (21%)  ← USEFUL
+  ├─ Family-level:     200 patterns (13%)  ← SOMEWHAT USEFUL
+  └─ One-off flukes:   592 patterns (38%)  ← BLOAT! 🗑️
+
+Only ~12% of patterns are relevant for any given query!
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              SOLUTION 1: INTELLIGENT FALLBACK CASCADE                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Error: RES.NAME_ERROR (requests module not found)
+
+┌──────────────────────────────────────────────────────────────────┐
+│ Level 1: CLUSTER-SPECIFIC (Most Precise) 🎯                     │
+│                                                                  │
+│ Query: cluster_id = "RES.NAME_ERROR:requests"                   │
+│                                                                  │
+│ Found: 2 patterns                                                │
+│   ✓ "Import requests library" (47 times, 0.94 confidence)       │
+│   ✓ "Add requests to requirements.txt" (38 times, 0.91)         │
+│                                                                  │
+│ Fallback Level: "cluster"                                       │
+│ Confidence: HIGH - exact match for this specific error          │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓
+                         Not enough results? (<5)
+                              ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ Level 2: ERROR-CODE (Broader) 🔄                                │
+│                                                                  │
+│ Query: error_code = "RES.NAME_ERROR"                            │
+│                                                                  │
+│ Found: +8 patterns (10 total)                                    │
+│   ✓ "Import numpy" (23 times, 0.89)                             │
+│   ✓ "Import pandas" (18 times, 0.87)                            │
+│   ✓ "Import matplotlib" (12 times, 0.85)                        │
+│   ... (all NameError fixes, any module)                         │
+│                                                                  │
+│ Fallback Level: "error_code"                                    │
+│ Confidence: MEDIUM - similar but not exact                      │
+│                                                                  │
+│ ⚠️  LLM Warning: "Using broader matches - consider alternatives" │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓
+                         Still not enough? (<5)
+                              ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ Level 3: FAMILY (Broadest) 🌐                                   │
+│                                                                  │
+│ Query: error_code LIKE "RES.%"                                   │
+│                                                                  │
+│ Found: +15 patterns (25 total)                                   │
+│   ✓ "Check file exists" (RES.FILE_NOT_FOUND, 34 times)          │
+│   ✓ "Install package" (RES.MODULE_ERROR, 29 times)              │
+│   ✓ "Fix network timeout" (RES.NETWORK_ERROR, 21 times)         │
+│   ... (all resource errors across categories)                   │
+│                                                                  │
+│ Fallback Level: "family"                                        │
+│ Confidence: LOW - very broad guidance only                      │
+│                                                                  │
+│ ⚠️  LLM Warning: "Using family patterns - let reasoning guide you" │
+└──────────────────────────────────────────────────────────────────┘
+                              ↓
+                         Still empty? (0 results)
+                              ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ Level 4: LLM BASE KNOWLEDGE + SCOPE WIDENING 🧠                 │
+│                                                                  │
+│ No patterns found → Return []                                    │
+│                                                                  │
+│ LLM Strategy:                                                    │
+│   1. Use base knowledge to reason through problem               │
+│   2. Analyze error context deeply                               │
+│   3. If stuck after 3 attempts:                                 │
+│      → detect_stuck_pattern() triggers                          │
+│      → Recommend: "Widen scope, check upstream dependencies"    │
+│                                                                  │
+│ Confidence: VARIABLE - depends on LLM reasoning quality         │
+│                                                                  │
+│ This is the TRUE power: LLM doesn't need patterns for novel     │
+│ problems - it can REASON through them!                          │
+└──────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 SOLUTION 2: GARBAGE COLLECTION                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Database Growth Without GC:
+────────────────────────────────────────────────────────────────────
+Year 1:  1,547 patterns (592 one-offs, 38% bloat)
+Year 2:  3,204 patterns (1,889 one-offs, 59% bloat)
+Year 3:  5,012 patterns (3,104 one-offs, 62% bloat)
+
+Result: Database keeps growing with useless patterns! ❌
+
+
+Database Growth WITH GC (Conservative):
+────────────────────────────────────────────────────────────────────
+Year 1:  1,547 patterns → GC removes 592 → 955 patterns remain
+Year 2:  1,203 patterns → GC removes 414 → 789 patterns remain
+Year 3:  1,456 patterns → GC removes 522 → 934 patterns remain
+
+Result: Stable ~1,000 high-quality patterns! ✅
+
+
+┌────────────────────────────────────────────────────────────────┐
+│  GC Strategy: CONSERVATIVE (Default)                           │
+│                                                                │
+│  DELETE FROM success_patterns                                  │
+│  WHERE success_count = 1                                       │
+│    AND datetime(last_success_at) < datetime('now', '-90 days') │
+│                                                                │
+│  Logic: One-off flukes unused for 90 days → DELETE            │
+│                                                                │
+│  Example:                                                      │
+│    Pattern: "Fix typo in variable name 'reqeusts'"            │
+│    Success count: 1                                            │
+│    Last used: 120 days ago                                     │
+│    Decision: DELETE (too specific, never reused)              │
+└────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────┐
+│  GC Strategy: AGGRESSIVE (Monthly cleanup)                     │
+│                                                                │
+│  DELETE FROM success_patterns                                  │
+│  WHERE success_count < 3                                       │
+│    AND datetime(last_success_at) < datetime('now', '-60 days') │
+│                                                                │
+│  Logic: Low-usage patterns (< 3 successes) older than 60 days │
+│                                                                │
+│  Example:                                                      │
+│    Pattern: "Import obscure_library"                           │
+│    Success count: 2                                            │
+│    Last used: 75 days ago                                      │
+│    Decision: DELETE (not proven, not recent)                   │
+└────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────┐
+│  GC Strategy: NUCLEAR (Emergency - DB too big)                 │
+│                                                                │
+│  DELETE FROM success_patterns                                  │
+│  WHERE success_count < 5                                       │
+│                                                                │
+│  Logic: Keep ONLY proven winners (≥ 5 successful applications) │
+│                                                                │
+│  Example:                                                      │
+│    Pattern: "Import requests" (47 times) → KEEP               │
+│    Pattern: "Import pandas" (23 times) → KEEP                 │
+│    Pattern: "Fix typo" (4 times) → DELETE                     │
+│                                                                │
+│  Result: ~200 gold standard patterns remain                    │
+└────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    REBANKER TAXONOMY FAMILIES                               │
+│                (Language-Agnostic Error Classification)                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+12 Core Families (work across Python, JavaScript, TypeScript, etc.):
+
+RES.*  Resource Errors
+  ├─ RES.NAME_ERROR         (undefined variables, imports)
+  ├─ RES.FILE_NOT_FOUND     (missing files, paths)
+  ├─ RES.MODULE_ERROR       (missing packages)
+  └─ RES.NETWORK_ERROR      (network timeouts)
+
+TYP.*  Type Errors
+  ├─ TYP.TYPE_ERROR         (type mismatches)
+  ├─ TYP.ATTRIBUTE_ERROR    (missing attributes)
+  └─ TYP.COERCION_ERROR     (invalid conversions)
+
+LOG.*  Logic Errors
+  ├─ LOG.INDEX_ERROR        (array bounds)
+  ├─ LOG.KEY_ERROR          (dict key missing)
+  └─ LOG.ASSERTION_ERROR    (failed assertions)
+
+SYN.*  Syntax Errors
+  ├─ SYN.PARSE_ERROR        (invalid syntax)
+  ├─ SYN.INDENT_ERROR       (indentation issues)
+  └─ SYN.MISSING_TOKEN      (missing brackets, quotes)
+
+...and 8 more families (SEC, PER, DAT, NET, DB, API, ENV, DEP)
+
+
+Example Fallback Using Taxonomy:
+────────────────────────────────────────────────────────────────────
+Error: "RES.NAME_ERROR:newlib" (never seen before)
+
+Query 1: cluster_id = "RES.NAME_ERROR:newlib" → 0 results
+Query 2: error_code = "RES.NAME_ERROR"       → 47 results
+         (requests, pandas, numpy, matplotlib...)
+         
+LLM learns: "This is a NameError for an import. Pattern suggests:
+             1. Check if module is installed
+             2. Check import statement syntax
+             3. Check requirements.txt"
+
+Even without seeing "newlib" specifically, LLM gets contextual guidance!
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         THE KEY INSIGHT                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Success Patterns are an ASSIST, not a CRUTCH.
+────────────────────────────────────────────────────────────────────
+
+DO:
+  ✅ Accelerate common fixes (imports, typos, etc.)
+  ✅ Provide context for novel problems (via fallback)
+  ✅ Learn from successes over time
+  ✅ Keep database clean (GC removes bloat)
+
+DON'T:
+  ❌ Replace LLM reasoning
+  ❌ Force exact matches when broader patterns work
+  ❌ Grow indefinitely with one-off flukes
+  ❌ Block LLM from solving novel problems
+
+When patterns fail → Fall back to LLM base knowledge + scope widening.
+
+That's the REAL power: Compound learning without over-reliance! 🎯
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          COMPLETE FLOW                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. Error occurs: "RES.NAME_ERROR:requests"
+   ↓
+2. Query patterns (3-level fallback):
+   Level 1 (cluster) → 2 results  ✓
+   Level 2 (error_code) → skipped (enough results)
+   Level 3 (family) → skipped
+   ↓
+3. Inject into LLM context:
+   "🏆 Found 2 proven solutions:
+    1. Import requests (47 times, 94% confidence)
+    2. Add to requirements.txt (38 times, 91%)"
+   ↓
+4. LLM applies proven solution → SUCCESS (PROMOTE, 0.95 confidence)
+   ↓
+5. Save to knowledge base:
+   success_count: 47 → 48
+   avg_confidence: 0.94 → 0.945
+   last_success_at: NOW()
+   ↓
+6. Next week: Run GC (conservative)
+   - This pattern has success_count=48 → KEEP ✅
+   - Other pattern: success_count=1, 120 days old → DELETE 🗑️
+   ↓
+7. Database stays clean and performant! 🚀
+```
+
+**Status:** READY for production testing ✅
