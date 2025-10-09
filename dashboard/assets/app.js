@@ -4,6 +4,7 @@ console.log('='.repeat(80));
 
 // ============================================================================
 // API LAYER - All backend calls in one place
+// this is what i was referring to yeste....we've got all the layers in one place
 // ============================================================================
 const API = {
   BASE_URL: 'http://127.0.0.1:5000',
@@ -969,6 +970,37 @@ const refreshAllData = async () => {
   }
 };
 
+// Global loadLiveData function - accessible everywhere
+async function loadLiveData() {
+  console.log('[Load] Loading live data from backend...');
+
+  try {
+    // Fetch metrics
+    const metricsData = await API.getMetrics();
+    if (metricsData) {
+      renderMetrics(metricsData);
+      console.log('[Load] Metrics loaded successfully');
+    } else {
+      console.warn('[Load] No metrics data returned from API');
+    }
+
+    // Fetch envelopes
+    const envelopesData = await API.getEnvelopes();
+    if (envelopesData && envelopesData.envelopes) {
+      renderTimeline(envelopesData.envelopes);
+      showPayload(envelopesData.envelopes[0]?.payload);
+      console.log('[Load] Envelopes loaded successfully');
+    } else {
+      console.warn('[Load] No envelopes data returned from API');
+    }
+
+    console.log('[Load] Live data loading complete');
+  } catch (error) {
+    console.error('[Load] Error loading live data:', error);
+    log('Failed to load live data - server may be down');
+  }
+}
+
 const actions = {
   "refresh-metrics": async () => {
     const data = await API.getMetrics();
@@ -1043,26 +1075,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // SIMPLE DIRECT DATA LOADING - No complex abstractions
   const BASE_URL = 'http://127.0.0.1:5000';
-
-  // Load live data using the API layer
-  async function loadLiveData() {
-    console.log('[Load] Loading live data from backend...');
-
-    // Fetch metrics
-    const metricsData = await API.getMetrics();
-    if (metricsData) {
-      renderMetrics(metricsData);
-    }
-
-    // Fetch envelopes
-    const envelopesData = await API.getEnvelopes();
-    if (envelopesData && envelopesData.envelopes) {
-      renderTimeline(envelopesData.envelopes);
-      showPayload(envelopesData.envelopes[0]?.payload);
-    }
-
-    console.log('[Load] Live data loading complete');
-  }
 
   try {
     console.log('Initializing dashboard...');
@@ -1708,10 +1720,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (!keepAliveStatusIndicator || !keepAliveStatusText) return;
 
       const statusMap = {
-        running: { indicator: '🟢', text: 'Running', global: '🟢 Connected' },
-        starting: { indicator: '🟡', text: 'Starting...', global: '🟡 Connecting' },
-        stopped: { indicator: '🔴', text: 'Not Running', global: '🔴 Disconnected' },
-        error: { indicator: '🔴', text: 'Error', global: '🔴 Error' }
+        running: { indicator: '🟢', text: 'Running', global: '🟢 Connected', tooltip: 'Keep-Alive Status: Running. Click to view details.' },
+        starting: { indicator: '🟡', text: 'Starting...', global: '🟡 Connecting', tooltip: 'Keep-Alive Status: Starting... Click to view details.' },
+        stopped: { indicator: '🔴', text: 'Not Running', global: '🔴 Disconnected', tooltip: 'Keep-Alive Status: Not Running. Click to start.' },
+        error: { indicator: '🔴', text: 'Error', global: '🔴 Error', tooltip: 'Keep-Alive Status: Error. Click to view details.' }
       };
 
       const config = statusMap[status.status] || statusMap.stopped;
@@ -1723,6 +1735,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         const [dot, text] = config.global.split(' ');
         globalStatusIndicator.querySelector('.status-dot').textContent = dot;
         globalStatusIndicator.querySelector('.status-text').textContent = text;
+        globalStatusIndicator.setAttribute('title', config.tooltip);
       }
 
       // Update uptime
@@ -1836,6 +1849,25 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Refresh status manually
     if (refreshKeepAliveBtn) {
       refreshKeepAliveBtn.addEventListener('click', refreshKeepAliveStatus);
+    }
+
+    // Global status indicator click handler - navigate to Settings
+    if (globalStatusIndicator) {
+      globalStatusIndicator.addEventListener('click', () => {
+        // Switch to Settings view
+        setActiveView('settings');
+
+        // Scroll to Keep-Alive Control after a brief delay to ensure view is rendered
+        setTimeout(() => {
+          const keepAlivePanel = document.querySelector('#keepalive-status-indicator');
+          if (keepAlivePanel) {
+            keepAlivePanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 100);
+      });
+
+      // Add visual feedback on hover
+      globalStatusIndicator.style.userSelect = 'none';
     }
 
     // Initial status check

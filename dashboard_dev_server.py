@@ -108,7 +108,7 @@ def get_metrics():
 
 @app.route('/envelopes/latest', methods=['GET'])
 def get_envelopes():
-    return jsonify(envelopes)
+    return jsonify({"envelopes": envelopes})
 
 @app.route('/debug/run', methods=['POST'])
 def trigger_heal():

@@ -858,6 +858,15 @@ body.is-busy button {
   background: rgba(0, 0, 0, 0.3);
   border-radius: 24px;
   border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.global-status:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(77, 208, 225, 0.2);
 }
 
 .status-dot {
