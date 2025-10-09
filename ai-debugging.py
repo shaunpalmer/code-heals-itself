@@ -215,6 +215,35 @@ class AIDebugger:
         self.debugger = Debugger(LogAndFixStrategy())
         self._tokens: List[float] = []  # simple rate limiter timestamps (per minute)
 
+    def _get_memory_context_for_llm(self) -> str:
+        """
+        Get recent healing context from hot memory to give LLM "memory" of what just happened.
+        
+        This closes the feedback loop - LLM can see patterns in recent attempts
+        and adapt its strategy accordingly.
+        
+        Returns:
+            String formatted for LLM prompt injection
+        """
+        try:
+            storage = get_envelope_storage()
+            return storage.memory_queue.get_llm_context(limit=10)
+        except Exception as e:
+            return f"[Memory context unavailable: {e}]"
+    
+    def _get_pattern_insights(self) -> Dict[str, Any]:
+        """
+        Get pattern analysis from recent attempts to guide LLM strategy.
+        
+        Returns:
+            Dict with insights like success rate trends, breaker patterns
+        """
+        try:
+            storage = get_envelope_storage()
+            return storage.memory_queue.get_pattern_insights()
+        except Exception as e:
+            return {"error": str(e)}
+
     # ---------- Public API ----------
     def process_error(
         self,
@@ -615,6 +644,17 @@ class AIDebugger:
         # System prompt
         DEFAULT_SYSTEM_PROMPT = "You are a code healing assistant. Analyze errors and suggest fixes based on structured diagnostic feedback."
         chat.add_message("system", DEFAULT_SYSTEM_PROMPT, metadata={"phase": "init"})
+        
+        # 🧠 MEMORY INJECTION: Give LLM visibility into recent healing patterns
+        memory_context = self._get_memory_context_for_llm()
+        if memory_context:
+            chat.add_message("system", memory_context, metadata={"phase": "memory"})
+        
+        # 📊 PATTERN INSIGHTS: Guide strategy based on trends
+        pattern_insights = self._get_pattern_insights()
+        if pattern_insights and pattern_insights.get("patterns"):
+            insights_text = "Recent Pattern Analysis:\n" + "\n".join(pattern_insights["patterns"])
+            chat.add_message("system", insights_text, metadata={"phase": "patterns"})
         
         for attempt in range(1, max_attempts + 1):
             # User message with previous immutable packet
