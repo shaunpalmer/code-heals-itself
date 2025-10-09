@@ -21,6 +21,7 @@ from llm_settings import (
     LM_STUDIO_MODELS
 )
 from clients.llm_client import LLMClient
+from envelope_storage import get_envelope_storage
 
 # Keep-alive state management
 keepalive_state = {
@@ -104,11 +105,25 @@ def serve_assets(filename):
 # API endpoints for dashboard
 @app.route('/status/metrics', methods=['GET'])
 def get_metrics():
-    return jsonify(metrics)
+    try:
+        storage = get_envelope_storage()
+        real_metrics = storage.get_metrics()
+        return jsonify(real_metrics)
+    except Exception as e:
+        print(f"Error getting metrics: {e}")
+        # Fallback to mock data if storage fails
+        return jsonify(metrics)
 
 @app.route('/envelopes/latest', methods=['GET'])
 def get_envelopes():
-    return jsonify({"envelopes": envelopes})
+    try:
+        storage = get_envelope_storage()
+        real_envelopes = storage.get_latest_envelopes(limit=20)
+        return jsonify({"envelopes": real_envelopes})
+    except Exception as e:
+        print(f"Error getting envelopes: {e}")
+        # Fallback to mock data if storage fails
+        return jsonify({"envelopes": envelopes})
 
 @app.route('/debug/run', methods=['POST'])
 def trigger_heal():

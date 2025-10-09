@@ -35,6 +35,7 @@ from confidence_scoring import (
 )
 from cascading_error_handler import CascadingErrorHandler, SandboxExecution, Environment
 from envelope import AIPatchEnvelope, PatchEnvelope, MemoryBuffer
+from envelope_storage import get_envelope_storage
 from utils.python.envelope_helpers import (
     append_attempt, mark_success, update_counters, add_timeline_entry,
     set_envelope_timestamp, set_envelope_hash, merge_confidence, update_trend,
@@ -497,11 +498,22 @@ class AIDebugger:
             set_envelope_hash(payload)
 
     def _finalize(self, env: PatchEnvelope, action: str, extras: Dict[str, Any]) -> Dict[str, Any]:
+        envelope_dict = json.loads(env.to_json())
+        
         payload = {
             "action": action,
-            "envelope": json.loads(env.to_json()),
+            "envelope": envelope_dict,
             "extras": extras,
         }
+        
+        # Save envelope to storage for dashboard display
+        try:
+            storage = get_envelope_storage()
+            storage.save_envelope(envelope_dict, action)
+        except Exception as e:
+            # Don't let storage failures break healing
+            print(f"Warning: Failed to save envelope to storage: {e}")
+        
         # optional place to emit metrics/traces per PRD FR-OBS (omitted here)
         return payload
 
