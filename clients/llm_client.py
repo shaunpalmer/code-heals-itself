@@ -9,6 +9,7 @@ import time
 from typing import Dict, List, Optional, Any
 import aiohttp
 from datetime import datetime
+import traceback
 
 
 class LLMClient:
@@ -114,11 +115,22 @@ class LLMClient:
                 return await self._chat_gemini(messages, **kwargs)
             else:
                 raise ValueError(f"Chat not implemented for provider: {self.provider}")
-        except Exception as e:
+        except asyncio.TimeoutError:
             return {
-                "error": str(e),
+                "error": f"Request timed out after {self.timeout} seconds",
+                "error_type": "TimeoutError",
                 "provider": self.provider,
                 "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            error_message = str(e) or repr(e)
+            return {
+                "error": error_message,
+                "error_type": e.__class__.__name__,
+                "provider": self.provider,
+                "timestamp": datetime.now().isoformat(),
+                "details": getattr(e, "args", None),
+                "traceback": traceback.format_exc()
             }
     
     async def _chat_openai_compatible(

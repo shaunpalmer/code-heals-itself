@@ -526,7 +526,11 @@ async def keepalive_loop(stop_event, interval):
                 await asyncio.sleep(interval)
                 continue
             else:
-                ping_url = f"{base_url}/v1/models"
+                # Avoid duplicating version segments (e.g. /v1/v1/models)
+                if base_url.endswith(("/v1", "/v2", "/v3")):
+                    ping_url = f"{base_url}/models"
+                else:
+                    ping_url = f"{base_url}/v1/models"
             
             # Perform ping
             start_time = time.time()
