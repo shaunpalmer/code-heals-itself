@@ -1098,6 +1098,222 @@ export class AIDebugger {
     const jsHints = /(function|const|let|var|=>|class\s+[A-Za-z]|import\s+|export\s+)/.test(s);
     return (hasBraces && hasSelectors) || scssAt ? !jsHints : false;
   }
+
+  /**
+   * HEALING LOOP ORCHESTRATION (Phase 11)
+   * Unified healing coordination: error delta → velocity → circuit breaker → decision
+   * Matches Python Phase 7 architecture exactly
+   */
+
+  /**
+   * Execute single healing attempt with full orchestration
+   * Calculates error delta, velocity, gradient; makes circuit breaker decision
+   */
+  public async attemptHealing(
+    code: string,
+    previousErrorCount: number,
+    attemptNumber: number,
+    errorType: ErrorType = ErrorType.LOGIC
+  ): Promise<{
+    decision: 'CONTINUE' | 'ROLLBACK' | 'ESCALATE' | 'COMPLETE';
+    envelope: any;
+    metrics: {
+      errorDelta: number;
+      velocity: number;
+      gradient: number;
+      previousErrorCount: number;
+      newErrorCount: number;
+      attempt: number;
+      timestamp: string;
+    };
+    reasoning: string;
+    recommendedAction: string;
+  }> {
+    const startTime = new Date().toISOString();
+
+    try {
+      // Step 1: Apply fix using current error type context
+      const fixedCode = await this.applyInternalFix(code, errorType);
+
+      // Step 2: Count errors in fixed code (mock for now; integrates with actual error detection)
+      const newErrorCount = this.countErrorsInCode(fixedCode);
+
+      // Step 3: Calculate error delta metrics
+      const errorDelta = previousErrorCount - newErrorCount;  // Positive = progress
+      const velocity = errorDelta / attemptNumber;             // Progress rate
+      const gradient = errorDelta > 0 ? velocity / errorDelta : 0;  // Directional signal (0-1)
+
+      // Step 4: Score confidence
+      const conf = this.scorer.calculate_confidence([], errorType, {});
+
+      // Step 5: Record in circuit breaker for trend analysis
+      const breaker = this.breaker as any;
+      if (typeof breaker.recordAttempt === 'function') {
+        breaker.recordAttempt(newErrorCount, previousErrorCount - newErrorCount, conf.overall_confidence, [errorType], 0.5);
+      }
+
+      // Step 6: Get circuit breaker decision
+      const [canContinue] = this.breaker.can_attempt(errorType);
+      const decision = this.mapBreakerDecisionToHealing(canContinue, attemptNumber, velocity);
+
+      // Step 7: Generate reasoning
+      const reasoning = this.generateHealingReasoning(decision, velocity, errorDelta, attemptNumber, newErrorCount);
+
+      // Step 8: Recommend action
+      const recommendedAction = this.getHealingRecommendation(decision);
+
+      // Step 9: Create healing result
+      const result = {
+        decision,
+        envelope: {
+          attempt_number: attemptNumber,
+          error_delta: errorDelta,
+          velocity,
+          gradient,
+          error_count: newErrorCount,
+          confidence: {
+            overall: conf.overall_confidence,
+            syntax: conf.syntax_confidence,
+            logic: conf.logic_confidence
+          },
+          breaker_state: canContinue ? 'CLOSED' : 'OPEN',
+          timestamp: startTime,
+          metadata: {
+            language: 'typescript',
+            version: '1.0',
+            created_at: startTime
+          }
+        },
+        metrics: {
+          errorDelta,
+          velocity,
+          gradient,
+          previousErrorCount,
+          newErrorCount,
+          attempt: attemptNumber,
+          timestamp: startTime
+        },
+        reasoning,
+        recommendedAction
+      };
+
+      return result;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        decision: 'CONTINUE',
+        envelope: {},
+        metrics: {
+          errorDelta: 0,
+          velocity: 0,
+          gradient: 0,
+          previousErrorCount,
+          newErrorCount: previousErrorCount,
+          attempt: attemptNumber,
+          timestamp: startTime
+        },
+        reasoning: `Error during healing attempt: ${errorMessage}`,
+        recommendedAction: 'retry'
+      };
+    }
+  }
+
+  /**
+   * Apply internal fix (integrates with existing fix logic)
+   */
+  private async applyInternalFix(code: string, errorType: ErrorType): Promise<string> {
+    // Use existing internal tweak/fix mechanisms
+    if (errorType === ErrorType.SYNTAX) {
+      return this.minimalTweak(code);
+    }
+    // For logic errors, return as-is (would be handled by LLM in real scenario)
+    return code;
+  }
+
+  /**
+   * Count errors in code (simple heuristic for testing; real implementation uses actual error detection)
+   */
+  private countErrorsInCode(code: string): number {
+    // Simple mock: count common error patterns
+    const errorPatterns = /error|Error|undefined|null|TypeError|ReferenceError|SyntaxError/gi;
+    const matches = code.match(errorPatterns);
+    return matches ? Math.ceil(matches.length / 2) : 0;  // Divide by 2 to be more conservative
+  }
+
+  /**
+   * Map circuit breaker decision to healing decision
+   * Incorporates stagnation detection and escalation signals
+   */
+  private mapBreakerDecisionToHealing(
+    canContinue: boolean,
+    attempt: number,
+    velocity: number
+  ): 'CONTINUE' | 'ROLLBACK' | 'ESCALATE' | 'COMPLETE' {
+    if (!canContinue) {
+      return 'ROLLBACK';
+    }
+
+    // Escalation signal: stagnation after minimum attempts (Phase 8: conservative 4-5)
+    if (attempt >= 4 && velocity < 0.05) {
+      return 'ESCALATE';
+    }
+
+    // Default: continue
+    return 'CONTINUE';
+  }
+
+  /**
+   * Generate reasoning for healing decision (human-readable explanation)
+   */
+  private generateHealingReasoning(
+    decision: string,
+    velocity: number,
+    errorDelta: number,
+    attempt: number,
+    errorCount: number
+  ): string {
+    switch (decision) {
+      case 'CONTINUE':
+        if (velocity > 0.1) {
+          return `Strong progress: velocity ${velocity.toFixed(3)}, error delta ${errorDelta}. Continue with current approach.`;
+        } else if (velocity >= 0) {
+          return `Modest progress: velocity ${velocity.toFixed(3)}, error count ${errorCount}. Continue, monitor closely.`;
+        } else {
+          return `Initial attempt (${attempt}/4): continue gathering data to establish gradient signal.`;
+        }
+
+      case 'ROLLBACK':
+        return `Regression detected: errors worsening. Rollback to previous working state.`;
+
+      case 'ESCALATE':
+        return `Stagnation detected: velocity ${velocity.toFixed(3)} below threshold after ${attempt} attempts. Escalate to larger model (20B).`;
+
+      case 'COMPLETE':
+        return `Success: error count ${errorCount}, no further errors. Healing complete.`;
+
+      default:
+        return 'Healing decision made.';
+    }
+  }
+
+  /**
+   * Get recommended action based on decision
+   */
+  private getHealingRecommendation(decision: string): string {
+    switch (decision) {
+      case 'CONTINUE':
+        return 'continue_with_same_model';
+      case 'ROLLBACK':
+        return 'revert_to_previous_version';
+      case 'ESCALATE':
+        return 'upgrade_to_20B_model';
+      case 'COMPLETE':
+        return 'accept_and_complete';
+      default:
+        return 'continue_default';
+    }
+  }
 }
 
 // --- Extension hooks (Tier-1) ---
