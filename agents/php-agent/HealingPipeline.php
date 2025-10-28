@@ -104,17 +104,20 @@ final class HealingPipeline {
     private Rebanker $rebanker;
     private Classifier $classifier;
     private ?EscalationObserver $observer = null;
+    private EnvelopeStorage $storage;
 
     public function __construct(
         ?CodePreprocessor $preprocessor = null,
         ?Rebanker $rebanker = null,
         ?Classifier $classifier = null,
-        ?EscalationObserver $observer = null
+        ?EscalationObserver $observer = null,
+        ?EnvelopeStorage $storage = null
     ) {
         $this->preprocessor = $preprocessor ?? new CodePreprocessor();
         $this->rebanker = $rebanker ?? new Rebanker();
         $this->classifier = $classifier ?? new Classifier();
         $this->observer = $observer ?? new EscalationObserver('HealingPipeline');
+        $this->storage = $storage ?? new EnvelopeStorage('/data/envelopes.db');
     }
 
     /**
@@ -139,6 +142,12 @@ final class HealingPipeline {
             }
 
             $fileEnvelopes = $this->analyzeFile($file);
+            
+            // Store each envelope for learning and rollback decisions
+            foreach ($fileEnvelopes as $env) {
+                $this->storage->addEnvelope($env, 'PENDING');
+            }
+            
             $envelopes = array_merge($envelopes, $fileEnvelopes);
         }
 
@@ -307,6 +316,50 @@ final class HealingPipeline {
             'avg_confidence' => round($avgConfidence, 3),
             'avg_cascade_risk' => round($avgCascade, 3),
         ];
+    }
+
+    /**
+     * Get storage accessor for memory-backed decisions
+     */
+    public function getStorage(): EnvelopeStorage {
+        return $this->storage;
+    }
+
+    /**
+     * Get best recent attempt (for rollback strategy)
+     * 
+     * @return ?array Best envelope or null
+     */
+    public function getBestRecentAttempt(int $limit = 5): ?array {
+        return $this->storage->getBestRecentAttempt($limit);
+    }
+
+    /**
+     * Get LLM context from recent attempts
+     * 
+     * @return string Context string for LLM
+     */
+    public function getLLMContext(int $limit = 10): string {
+        return $this->storage->getLLMContext($limit);
+    }
+
+    /**
+     * Record successful fix pattern (after healing succeeds)
+     */
+    public function recordSuccessPattern(
+        string $error_code,
+        string $cluster_id,
+        string $fix_description,
+        string $fix_diff,
+        float $confidence
+    ): void {
+        $this->storage->recordSuccessPattern(
+            $error_code,
+            $cluster_id,
+            $fix_description,
+            $fix_diff,
+            $confidence
+        );
     }
 }
 
