@@ -121,6 +121,20 @@ final class HealingPipeline {
     }
 
     /**
+     * Set or replace the escalation observer
+     */
+    public function setObserver(EscalationObserver $observer): void {
+        $this->observer = $observer;
+    }
+
+    /**
+     * Get the current escalation observer
+     */
+    public function getObserver(): ?EscalationObserver {
+        return $this->observer;
+    }
+
+    /**
      * Main pipeline: Files → Preprocessing → Rebanking → Enrichment → Envelopes
      * 
      * @param string $pattern Glob pattern (e.g., "src/**\/*.php")
