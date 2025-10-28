@@ -103,15 +103,18 @@ final class HealingPipeline {
     private CodePreprocessor $preprocessor;
     private Rebanker $rebanker;
     private Classifier $classifier;
+    private ?EscalationObserver $observer = null;
 
     public function __construct(
         ?CodePreprocessor $preprocessor = null,
         ?Rebanker $rebanker = null,
-        ?Classifier $classifier = null
+        ?Classifier $classifier = null,
+        ?EscalationObserver $observer = null
     ) {
         $this->preprocessor = $preprocessor ?? new CodePreprocessor();
         $this->rebanker = $rebanker ?? new Rebanker();
         $this->classifier = $classifier ?? new Classifier();
+        $this->observer = $observer ?? new EscalationObserver('HealingPipeline');
     }
 
     /**

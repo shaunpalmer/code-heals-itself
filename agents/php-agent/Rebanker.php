@@ -376,3 +376,202 @@ if (php_sapi_name() === 'cli' && basename(__FILE__) === basename($_SERVER['PHP_S
     echo "Batch Results:\n";
     echo json_encode($stats, JSON_PRETTY_PRINT) . "\n";
 }
+
+// ============================================================================
+// OBSERVER & ESCALATION HINT (Python parity: observer.py)
+// ============================================================================
+
+/**
+ * EscalationHint: Signal when problem difficulty + velocity stall
+ * (Mirrors Python EscalationHint dataclass)
+ */
+class EscalationHint {
+    public int $attemptNumber;
+    public float $difficultyScore;      // 0.0 (easy) to 1.0 (hard)
+    public float $velocity;             // Error improvement per attempt
+    public string $reason;
+    public string $timestamp;
+    public string $suggestedAction;     // e.g., "increase_temperature", "upgrade_model"
+
+    public function __construct(
+        int $attemptNumber,
+        float $difficultyScore,
+        float $velocity,
+        string $reason,
+        string $suggestedAction
+    ) {
+        $this->attemptNumber = $attemptNumber;
+        $this->difficultyScore = max(0.0, min(1.0, $difficultyScore));
+        $this->velocity = $velocity;
+        $this->reason = $reason;
+        $this->timestamp = date('c');
+        $this->suggestedAction = $suggestedAction;
+    }
+
+    public function toArray(): array {
+        return [
+            'attempt' => $this->attemptNumber,
+            'difficulty' => round($this->difficultyScore, 2),
+            'velocity' => round($this->velocity, 3),
+            'reason' => $this->reason,
+            'action' => $this->suggestedAction,
+            'timestamp' => $this->timestamp,
+        ];
+    }
+}
+
+/**
+ * EscalationObserver: Watches difficulty + velocity, emits escalation hints
+ * (Mirrors Python EscalationHintObserver)
+ */
+class EscalationObserver {
+    // Thresholds (conservative, aligned with Python Phase 8 tuning)
+    private const HARD_DIFFICULTY_THRESHOLD = 0.65;
+    private const VELOCITY_STALL_THRESHOLD = 0.05;
+    private const EASY_CUTOFF = 0.25;
+    private const MEDIUM_CUTOFF = 0.65;
+
+    private array $escalationHistory = [];
+    private string $name;
+
+    public function __construct(string $name = 'EscalationObserver') {
+        $this->name = $name;
+    }
+
+    /**
+     * Evaluate if escalation hint should be emitted.
+     * Called after each healing attempt.
+     *
+     * @param float $difficulty 0.0-1.0
+     * @param float $velocity Error improvement rate (errors per attempt)
+     * @param int $attempt Current attempt number
+     * @param string $circuitState 'OPEN'|'CLOSED'|'HALF_OPEN'
+     * @return ?EscalationHint
+     */
+    public function evaluateEscalation(
+        float $difficulty,
+        float $velocity,
+        int $attempt,
+        string $circuitState = 'CLOSED'
+    ): ?EscalationHint {
+        // Signal 1: Hard problem + stalling velocity
+        if ($difficulty >= self::HARD_DIFFICULTY_THRESHOLD && $velocity < self::VELOCITY_STALL_THRESHOLD) {
+            $reason = sprintf(
+                "Hard problem (difficulty=%.2f) detected with stalling velocity (%.3f errors/attempt). "
+                . "Problem may need different approach.",
+                $difficulty,
+                $velocity
+            );
+            $hint = new EscalationHint(
+                $attempt,
+                $difficulty,
+                $velocity,
+                $reason,
+                'increase_temperature_or_model_upgrade'
+            );
+            $this->escalationHistory[] = $hint;
+            $this->emitHint($hint);
+            return $hint;
+        }
+
+        // Signal 2: Hard problem + circuit breaker open
+        if ($difficulty >= self::HARD_DIFFICULTY_THRESHOLD && $circuitState === 'OPEN') {
+            $reason = sprintf(
+                "Hard problem (difficulty=%.2f) with circuit breaker OPEN. "
+                . "Stagnation detected. Consider model escalation.",
+                $difficulty
+            );
+            $hint = new EscalationHint(
+                $attempt,
+                $difficulty,
+                $velocity,
+                $reason,
+                'escalate_to_larger_model'
+            );
+            $this->escalationHistory[] = $hint;
+            $this->emitHint($hint);
+            return $hint;
+        }
+
+        // Signal 3: Extreme difficulty (>0.8) at any point
+        if ($difficulty > 0.8) {
+            $reason = sprintf(
+                "Extreme difficulty detected (difficulty=%.2f). "
+                . "This problem may exceed current model capability. "
+                . "Recommend immediate model upgrade or multi-model ensemble.",
+                $difficulty
+            );
+            $hint = new EscalationHint(
+                $attempt,
+                $difficulty,
+                $velocity,
+                $reason,
+                'immediate_model_escalation_or_ensemble'
+            );
+            $this->escalationHistory[] = $hint;
+            $this->emitHint($hint);
+            return $hint;
+        }
+
+        return null;
+    }
+
+    /**
+     * Emit escalation hint to console + logging
+     */
+    private function emitHint(EscalationHint $hint): void {
+        $difficultyLabel = match (true) {
+            $hint->difficultyScore > 0.8 => 'EXTREME',
+            $hint->difficultyScore > self::MEDIUM_CUTOFF => 'HARD',
+            $hint->difficultyScore > self::EASY_CUTOFF => 'MEDIUM',
+            default => 'EASY',
+        };
+
+        $message = sprintf(
+            "\n🚨 [%s] ESCALATION HINT at Attempt %d\n"
+            . "   Difficulty: %s (%.2f%%)\n"
+            . "   Velocity: %.3f errors/attempt\n"
+            . "   Action: %s\n"
+            . "   Reason: %s\n",
+            $this->name,
+            $hint->attemptNumber,
+            $difficultyLabel,
+            $hint->difficultyScore * 100,
+            $hint->velocity,
+            $hint->suggestedAction,
+            $hint->reason
+        );
+
+        error_log($message);
+    }
+
+    /**
+     * Get all escalation hints emitted during session
+     * @return EscalationHint[]
+     */
+    public function getEscalationHistory(): array {
+        return $this->escalationHistory;
+    }
+
+    /**
+     * Get escalation summary
+     */
+    public function getEscalationSummary(): array {
+        $maxDifficulty = 0.0;
+        foreach ($this->escalationHistory as $hint) {
+            $maxDifficulty = max($maxDifficulty, $hint->difficultyScore);
+        }
+
+        $byAction = [];
+        foreach ($this->escalationHistory as $hint) {
+            $byAction[$hint->suggestedAction] = ($byAction[$hint->suggestedAction] ?? 0) + 1;
+        }
+
+        return [
+            'total_hints' => count($this->escalationHistory),
+            'by_action' => $byAction,
+            'max_difficulty' => $maxDifficulty,
+            'hints' => array_map(fn($h) => $h->toArray(), $this->escalationHistory),
+        ];
+    }
+}
