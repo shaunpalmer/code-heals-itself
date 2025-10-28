@@ -1,0 +1,72 @@
+{
+  "name": "Code Heals Itself - Dev Container",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "python-agent",
+  "workspaceFolder": "/workspace",
+  
+  // Features to install
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/python:1": {
+      "version": "3.12"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+
+  // VS Code settings
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode-remote.remote-containers",
+        "ms-vscode-remote.remote-wsl",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.formatting.provider": "black",
+        "editor.formatOnSave": true,
+        "files.watcherExclude": {
+          "**/.git/objects/**": true,
+          "**/.git/subtree-cache/**": true,
+          "**/node_modules/**": true,
+          "**/__pycache__/**": true
+        }
+      }
+    }
+  },
+
+  // Port forwarding
+  "forwardPorts": [5000, 1234],
+  "portsAttributes": {
+    "5000": {
+      "label": "Dashboard",
+      "onAutoForward": "notify"
+    },
+    "1234": {
+      "label": "LM Studio API",
+      "onAutoForward": "silent"
+    }
+  },
+
+  // Post-create commands
+  "postCreateCommand": "pip install -r requirements.txt && echo '✅ Dev container ready!'",
+
+  // Run services on startup
+  "initializeCommand": "docker compose up -d lmstudio dashboard",
+
+  // Container user
+  "remoteUser": "root",
+
+  // Mount the docker socket for container management
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ]
+}

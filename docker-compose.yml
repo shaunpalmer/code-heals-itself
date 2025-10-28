@@ -1,0 +1,121 @@
+services:
+  # NOTE: LM Studio running locally on host (http://127.0.0.1:1234)
+  # Docker containers access it via http://host.docker.internal:1234
+  # This is configured in environment variables for each service below
+
+  # Python MCP Agent - Main healing orchestrator
+  python-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: code-heals-python
+    volumes:
+      - ./:/workspace
+      - ./data:/data
+      - ./envelope_storage.db:/workspace/envelope_storage.db
+    environment:
+      - LLM_API_URL=http://host.docker.internal:1234/v1
+      - PYTHONUNBUFFERED=1
+    networks:
+      - healing-network
+    command: python dashboard_dev_server.py
+
+  # Dashboard MCP Server
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: code-heals-dashboard
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./:/workspace
+      - ./data:/data
+    environment:
+      - FLASK_ENV=development
+      - FLASK_APP=dashboard_dev_server.py
+    depends_on:
+      - python-agent
+    networks:
+      - healing-network
+    command: python dashboard_dev_server.py
+
+  # PHP MCP Agent (future)
+  php-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.php
+    container_name: code-heals-php
+    volumes:
+      - ./:/workspace
+      - ./data:/data
+    environment:
+      - LLM_API_URL=http://host.docker.internal:1234/v1
+    networks:
+      - healing-network
+    profiles:
+      - php  # Optional: start with --profile php
+
+  # Re-banker service (error analysis)
+  rebanker:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: code-heals-rebanker
+    volumes:
+      - ./:/workspace
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - healing-network
+    command: python -m ops.rebank.rebank_py
+
+  # Memory MCP Agent (persistent memory storage)
+  memory-mcp:
+    build:
+      context: ./agents/memory
+      dockerfile: Dockerfile
+    container_name: code-heals-memory-mcp
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/data
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - healing-network
+    restart: unless-stopped
+
+  # Watcher MCP Agent (container monitoring and healing)
+  watcher-mcp:
+    build:
+      context: ./agents/watcher
+      dockerfile: Dockerfile
+    container_name: code-heals-watcher-mcp
+    ports:
+      - "8091:8091"
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - healing-network
+    restart: unless-stopped
+    depends_on:
+      - python-agent
+
+  # NOTE: lmstudio-mcp-proxy (ghcr.io/lmstudio/mcp-proxy) not yet available
+  # Will add when Docker image becomes stable (currently beta-only)
+  # Planned for port 1240 with environment:
+  #   - LMSTUDIO_API=http://lmstudio:8080/v1
+  #   - MCP_NETWORK=healing-network
+
+networks:
+  healing-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local
