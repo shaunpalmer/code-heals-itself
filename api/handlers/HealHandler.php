@@ -6,7 +6,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../ai-debugging.php';
+require_once __DIR__ . '/../../ai-debugging.php';
 
 class HealHandler {
     private AIDebugger $debugger;

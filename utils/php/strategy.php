@@ -67,23 +67,3 @@ class Debugger {
         return $this->strategy->execute($context);
     }
 }
-
-// Usage example
-$debugger = new Debugger(new LogAndFixStrategy());
-
-$context = ["error" => "Null pointer exception"];
-$result = $debugger->debug($context);
-echo json_encode($result, JSON_PRETTY_PRINT) . "\n";
-
-// Switch to rollback strategy
-$debugger->setStrategy(new RollbackStrategy());
-$result2 = $debugger->debug($context);
-echo json_encode($result2, JSON_PRETTY_PRINT) . "\n";
-
-// Security strategy
-$debugger->setStrategy(new SecurityAuditStrategy());
-$securityContext = ["vulnerability" => "Buffer overflow"];
-$result3 = $debugger->debug($securityContext);
-echo json_encode($result3, JSON_PRETTY_PRINT) . "\n";
-
-?>

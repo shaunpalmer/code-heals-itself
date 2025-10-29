@@ -8,6 +8,8 @@ require_once __DIR__ . '/utils/php/strategy.php';
 require_once __DIR__ . '/utils/php/human_debugging.php';
 
 // PHP Agent components
+require_once __DIR__ . '/agents/php-agent/CodePreprocessor.php';
+require_once __DIR__ . '/agents/php-agent/Classifier.php';
 require_once __DIR__ . '/agents/php-agent/HealingPipeline.php';
 require_once __DIR__ . '/agents/php-agent/EnvelopeStorage.php';
 require_once __DIR__ . '/agents/php-agent/Rebanker.php';
@@ -15,6 +17,8 @@ require_once __DIR__ . '/agents/php-agent/Rebanker.php';
 // Schema validation
 use Opis\JsonSchema\Validator;
 use Opis\JsonSchema\ValidationResult;
+use CodeHealsItself\PhpAgent\CodePreprocessor;
+use CodeHealsItself\PhpAgent\Classifier;
 use CodeHealsItself\PhpAgent\HealingPipeline;
 use CodeHealsItself\PhpAgent\EnvelopeStorage;
 use CodeHealsItself\PhpAgent\Rebanker;
@@ -61,7 +65,7 @@ final class AIDebugger {
             $this->policy->logic_error_budget
         );
         $this->cascade  = new CascadingErrorHandler();
-        $this->sandbox  = new SandboxExecution(Environment::SANDBOX(), $this->policy->sandbox_isolation);
+        $this->sandbox  = new SandboxExecution(Environment::SANDBOX, $this->policy->sandbox_isolation);
         $this->enveloper= new AIPatchEnvelope();
         $this->memory   = new MemoryBuffer(500);
         $this->human    = new SeniorDeveloperSimulator();
