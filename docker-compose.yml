@@ -1,7 +1,44 @@
 services:
-  # NOTE: LM Studio running locally on host (http://127.0.0.1:1234)
-  # Docker containers access it via http://host.docker.internal:1234
-  # This is configured in environment variables for each service below
+  # LM Studio / OpenAI-compatible API server
+  # HYBRID ARCHITECTURE: Using local LM Studio (host:1234) instead of container
+  # - Local LM Studio handles inference + model switching
+  # - All Docker agents reach it via http://host.docker.internal:1234/v1
+  # 
+  # Reason for hybrid:
+  # 1. Local GUI allows easy model switching (llama-2, llama, custom models)
+  # 2. Better performance (no extra network hop through container)
+  # 3. Simple fallback if local crashes (can spin up container later)
+  # 
+  # To enable containerized backup (future):
+  # - Uncomment lmstudio service below
+  # - Download model file to ./models/7B/ggml-model-f16.gguf
+  # - Update LLM_API_URL env vars back to http://lmstudio:8080/v1
+  # - docker compose up -d lmstudio
+  #
+  # lmstudio:
+  #   image: ghcr.io/ggerganov/llama.cpp:server
+  #   container_name: code-heals-lmstudio
+  #   ports:
+  #     - "1234:8080"
+  #   volumes:
+  #     - ./models:/models
+  #     - ./data/lmstudio-logs:/logs
+  #   environment:
+  #     - THREADS=8
+  #   command: 
+  #     - /app/llama-server
+  #     - --port
+  #     - "8080"
+  #     - --host
+  #     - "0.0.0.0"
+  #     - --threads
+  #     - "8"
+  #     - --ngl
+  #     - "0"
+  #   shm_size: "2gb"
+  #   restart: unless-stopped
+  #   networks:
+  #     - healing-network
 
   # Python MCP Agent - Main healing orchestrator
   python-agent:
@@ -14,7 +51,8 @@ services:
       - ./data:/data
       - ./envelope_storage.db:/workspace/envelope_storage.db
     environment:
-      - LLM_API_URL=http://host.docker.internal:1234/v1
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
       - PYTHONUNBUFFERED=1
     networks:
       - healing-network
@@ -34,11 +72,32 @@ services:
     environment:
       - FLASK_ENV=development
       - FLASK_APP=dashboard_dev_server.py
-    depends_on:
-      - python-agent
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
     networks:
       - healing-network
     command: python dashboard_dev_server.py
+
+  # REST API Service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.php
+    container_name: code-heals-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/workspace
+      - ./data:/data
+      - ./agents/php-agent/php.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
+    environment:
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
+      - PHP_ENV=production
+    networks:
+      - healing-network
+    command: php -S 0.0.0.0:8000 -t public
+    restart: unless-stopped
 
   # PHP MCP Agent (future)
   php-agent:
@@ -49,8 +108,13 @@ services:
     volumes:
       - ./:/workspace
       - ./data:/data
+      # OPcache php.ini with preload (fast startup: ~50ms vs 500ms cold)
+      - ./agents/php-agent/php.ini:/usr/local/etc/php/conf.d/opcache.ini:ro
     environment:
-      - LLM_API_URL=http://host.docker.internal:1234/v1
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
+      # OPcache is automatically enabled via php.ini
+      # Preload is triggered via -d opcache.preload flag in Dockerfile.php CMD
     networks:
       - healing-network
     profiles:
@@ -67,6 +131,8 @@ services:
       - ./data:/data
     environment:
       - PYTHONUNBUFFERED=1
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
     networks:
       - healing-network
     command: python -m ops.rebank.rebank_py
@@ -100,11 +166,35 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - PYTHONUNBUFFERED=1
+      - PRIMARY_URL=http://lmstudio:8080/v1
+      - FALLBACK_URL=http://host.docker.internal:1234/v1
     networks:
       - healing-network
     restart: unless-stopped
-    depends_on:
-      - python-agent
+
+  # Desktop Commander MCP - Copilot's local operations agent
+  # NOTE: Public Docker image may not be available yet (brand new project)
+  # Can be built locally from: github.com/wonderwhy-er/DesktopCommanderMCP
+  # For now, the Desktop Commander MCP is available as a native extension
+  # via the MCP Toolkit UI (already detected and installed by user)
+  # 
+  # When the Docker image becomes available, uncomment:
+  # 
+  # desktop-commander-mcp:
+  #   image: ghcr.io/wonderwhy-er/desktop-commandermcp:latest
+  #   container_name: code-heals-desktop-commander-mcp
+  #   ports:
+  #     - "8095:8095"
+  #   volumes:
+  #     - ./:/workspace
+  #     - ./data:/data
+  #   environment:
+  #     - MCP_NAME=DesktopCommander
+  #     - WORKSPACE=/workspace
+  #     - LOG_LEVEL=info
+  #   networks:
+  #     - healing-network
+  #   restart: unless-stopped
 
   # NOTE: lmstudio-mcp-proxy (ghcr.io/lmstudio/mcp-proxy) not yet available
   # Will add when Docker image becomes stable (currently beta-only)
