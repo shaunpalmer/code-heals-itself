@@ -10,12 +10,23 @@ error_reporting(E_ALL);
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 
-// Load dependencies
-require_once __DIR__ . '/../api/routes.php';
-require_once __DIR__ . '/../api/middleware.php';
-require_once __DIR__ . '/../api/handlers/HealHandler.php';
-require_once __DIR__ . '/../api/handlers/StatusHandler.php';
-require_once __DIR__ . '/../api/handlers/ClassifyHandler.php';
+// Define project paths as constants
+define('PROJECT_ROOT', dirname(__DIR__));
+define('API_DIR', PROJECT_ROOT . '/api');
+define('HANDLERS_DIR', API_DIR . '/handlers');
+define('UTILS_DIR', PROJECT_ROOT . '/utils');
+
+// Load Composer autoloader first (handles PSR-4 namespaced classes)
+require_once PROJECT_ROOT . '/vendor/autoload.php';
+
+// Load API infrastructure classes (multiple classes per file - explicit requires for clarity)
+require_once API_DIR . '/middleware.php';  // APIValidator, APIMiddleware, APIResponse
+require_once API_DIR . '/routes.php';       // APIRouter
+
+use CodeHealsItself\Api\APIValidator;
+use CodeHealsItself\Api\APIMiddleware;
+use CodeHealsItself\Api\APIRouter;
+use CodeHealsItself\Api\APIResponse;
 
 try {
     // Parse request
@@ -53,7 +64,7 @@ try {
     // Return response
     echo APIResponse::json($result, $result['success'] ? 200 : 400);
 
-} catch (Exception $e) {
+} catch (\Exception $e) {
     echo APIMiddleware::handleException($e);
     exit(1);
 }

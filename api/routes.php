@@ -6,6 +6,8 @@
 
 declare(strict_types=1);
 
+namespace CodeHealsItself\Api;
+
 class APIRouter {
     private array $routes = [];
 
@@ -14,9 +16,9 @@ class APIRouter {
     }
 
     private function registerRoutes(): void {
-        $this->routes['POST']['/heal'] = 'HealHandler';
-        $this->routes['GET']['/status'] = 'StatusHandler';
-        $this->routes['POST']['/classify'] = 'ClassifyHandler';
+        $this->routes['POST']['/heal'] = 'CodeHealsItself\Api\Handlers\HealHandler';
+        $this->routes['GET']['/status'] = 'CodeHealsItself\Api\Handlers\StatusHandler';
+        $this->routes['POST']['/classify'] = 'CodeHealsItself\Api\Handlers\ClassifyHandler';
     }
 
     public function route(string $method, string $path): ?string {

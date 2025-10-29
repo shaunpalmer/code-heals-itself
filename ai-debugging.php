@@ -1,6 +1,8 @@
 <?php
 declare(strict_types=1);
 
+namespace CodeHealsItself\PhpAgent;
+
 require_once __DIR__ . '/utils/php/confidence_scoring.php';
 require_once __DIR__ . '/utils/php/cascading_error_handler.php';
 require_once __DIR__ . '/utils/php/envelope.php';

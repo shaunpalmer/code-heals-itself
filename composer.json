@@ -1,0 +1,19 @@
+{
+  "name": "shaun-palmer/code-heals-itself",
+  "description": "Self-healing code system with error classification and adaptive debugging",
+  "type": "project",
+  "require": {
+    "php": ">=8.2"
+  },
+  "autoload": {
+    "files": [
+      "api/middleware.php"
+    ],
+    "psr-4": {
+      "CodeHealsItself\\PhpAgent\\": "agents/php-agent/",
+      "CodeHealsItself\\Api\\": "api/",
+      "CodeHealsItself\\Api\\Handlers\\": "api/handlers/",
+      "CodeHealsItself\\Api\\Middleware\\": "api/middleware/"
+    }
+  }
+}

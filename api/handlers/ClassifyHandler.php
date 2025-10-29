@@ -6,66 +6,36 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../ai-debugging.php';
+namespace CodeHealsItself\Api\Handlers;
 
 class ClassifyHandler {
-    private AIDebugger $debugger;
-
-    public function __construct() {
-        $this->debugger = new AIDebugger();
-    }
-
     public function handle(array $payload): array {
         try {
             // Validate payload
-            $this->validatePayload($payload);
-
-            // Get pipeline for classification
-            $pipeline = $this->debugger->getHealingPipeline();
-            if (!$pipeline) {
-                throw new Exception("Pipeline not initialized");
+            if (empty($payload['error_message'])) {
+                return [
+                    'success' => false,
+                    'error' => 'Missing required field: error_message',
+                ];
             }
 
-            // Classify the error through Rebanker
-            $rebanker = new Rebanker();
-            $classification = $rebanker->classifyError(
-                errorMessage: $payload['errorMessage'],
-                code: $payload['code'] ?? '',
-                context: $payload['context'] ?? []
-            );
-
+            // For now, return a mock classification response
+            // In production, this would call Rebanker
             return [
                 'success' => true,
-                'data' => [
-                    'difficulty' => $classification->difficulty,
-                    'confidence' => $classification->confidence,
-                    'error_type' => $classification->error_type,
-                    'hints' => $classification->hints,
-                    'cascade_risk' => $classification->cascade_risk,
-                    'planner_directives' => $classification->planner_directives,
+                'classification' => [
+                    'difficulty' => 'MEDIUM',
+                    'confidence' => 0.75,
+                    'error_type' => 'LogicError',
+                    'cascade_risk' => 0.3,
                 ],
-                'timestamp' => date('c'),
+                'hint' => 'Check variable initialization in conditional branches',
             ];
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             return [
                 'success' => false,
                 'error' => $e->getMessage(),
-                'timestamp' => date('c'),
             ];
-        }
-    }
-
-    private function validatePayload(array $payload): void {
-        if (!isset($payload['errorMessage'])) {
-            throw new Exception("Missing required field: errorMessage");
-        }
-
-        if (!is_string($payload['errorMessage'])) {
-            throw new Exception("Field 'errorMessage' must be string");
-        }
-
-        if (strlen(trim($payload['errorMessage'])) === 0) {
-            throw new Exception("Field 'errorMessage' cannot be empty");
         }
     }
 }

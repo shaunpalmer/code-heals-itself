@@ -5,6 +5,8 @@
 
 declare(strict_types=1);
 
+namespace CodeHealsItself\Api;
+
 class APIResponse {
     public static function json(array $data, int $httpCode = 200): string {
         http_response_code($httpCode);
@@ -32,12 +34,12 @@ class APIResponse {
 class APIValidator {
     public static function validateJSON(string $body): array {
         if (empty($body)) {
-            throw new Exception('Request body cannot be empty');
+            throw new \Exception('Request body cannot be empty');
         }
 
         $data = json_decode($body, true);
         if ($data === null) {
-            throw new Exception('Invalid JSON in request body');
+            throw new \Exception('Invalid JSON in request body');
         }
 
         return $data;
@@ -45,7 +47,7 @@ class APIValidator {
 
     public static function validateMethod(string $required, string $actual): void {
         if (strtoupper($required) !== strtoupper($actual)) {
-            throw new Exception("Method must be {$required}, got {$actual}");
+            throw new \Exception("Method must be {$required}, got {$actual}");
         }
     }
 
@@ -53,14 +55,14 @@ class APIValidator {
         if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
             $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
             if (strpos($contentType, 'application/json') === false) {
-                throw new Exception('Content-Type must be application/json');
+                throw new \Exception('Content-Type must be application/json');
             }
         }
     }
 }
 
 class APIMiddleware {
-    public static function handleException(Exception $e): string {
+    public static function handleException(\Exception $e): string {
         error_log('[API ERROR] ' . $e->getMessage());
         return APIResponse::error($e->getMessage(), 500);
     }
