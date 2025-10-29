@@ -1,0 +1,32 @@
+{
+  "mcp": {
+    "servers": {
+      "MCP_DOCKER": {
+        "type": "stdio",
+        "command": "docker",
+        "args": ["mcp", "gateway", "run"]
+      },
+      "MCP_MEMORY": {
+        "type": "http",
+        "url": "http://localhost:8090"
+      },
+      "MCP_WATCHER": {
+        "type": "http",
+        "url": "http://localhost:8091"
+      },
+      "MCP_DASHBOARD": {
+        "type": "http",
+        "url": "http://localhost:5000"
+      },
+      "MCP_API_GATEWAY": {
+        "type": "stdio",
+        "command": "docker",
+        "args": ["mcp", "client", "call", "mcp-api-gateway"]
+      },
+      "MCP_DESKTOP_COMMANDER": {
+        "type": "http",
+        "url": "http://localhost:8095"
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "servers": {
+    "lmstudio": {
+      "type": "api",
+      "url": "http://localhost:1234/v1",
+      "description": "Local LM Studio OpenAI-compatible API"
+    },
+    "memory-mcp": {
+      "type": "http",
+      "url": "http://localhost:8090",
+      "description": "Memory MCP - Persistent data store"
+    },
+    "watcher-mcp": {
+      "type": "http",
+      "url": "http://localhost:8091",
+      "description": "Watcher MCP - Container monitoring"
+    },
+    "dashboard": {
+      "type": "http",
+      "url": "http://localhost:5000",
+      "description": "Dashboard - Web UI"
+    }
+  },
+  "gateway": {
+    "port": 3000,
+    "host": "0.0.0.0",
+    "enableCors": true,
+    "logLevel": "info"
+  }
+}

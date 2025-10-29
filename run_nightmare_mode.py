@@ -152,14 +152,21 @@ BUGGY CODE:
 async def run_test():
     settings = load_llm_settings()
     
+    # For nightmare mode (concurrent bugs), use largest available model
+    # Prefer: qwen3-32b > openai/gpt-oss-20b > configured model
+    model_name = settings.get('model_name', 'qwen3-32b')
+    available_models = ['qwen3-32b', 'openai/gpt-oss-20b', 'qwen/qwen3-32b']
+    if model_name not in available_models:
+        model_name = 'qwen3-32b'  # Default to largest
+    
     client = LLMClient(
         provider=settings.get('provider', 'lmstudio'),
         api_key=settings.get('api_key', 'not-needed'),
         base_url=settings.get('base_url', 'http://127.0.0.1:1234/v1'),
-        model_name=settings.get('model_name', 'openai/gpt-oss-20b'),
+        model_name=model_name,
         temperature=0.5,
         max_tokens=settings.get('max_tokens', 6000),
-        timeout=settings.get('timeout', 180)
+        timeout=settings.get('timeout', 180)  # 3 min timeout for big models
     )
     
     print("="*70)

@@ -1,0 +1,68 @@
+{
+  "code-heals-dashboard": {
+    "id": "9fc2ef95b892",
+    "status": "running",
+    "last_seen": "2025-10-29T11:17:49.157613",
+    "image": "code-heals-itself-dashboard:latest"
+  },
+  "code-heals-watcher-mcp": {
+    "id": "ab3473e22bfc",
+    "status": "running",
+    "last_seen": "2025-10-29T11:17:49.157613",
+    "image": "code-heals-itself-watcher-mcp:latest"
+  },
+  "code-heals-python": {
+    "id": "0d9324e4d782",
+    "status": "running",
+    "last_seen": "2025-10-29T11:17:49.157613",
+    "image": "code-heals-itself-python-agent:latest"
+  },
+  "code-heals-lmstudio": {
+    "id": "44317ded178b",
+    "status": "restarting",
+    "last_seen": "2025-10-29T11:17:49.157613",
+    "image": "ghcr.io/ggerganov/llama.cpp:server"
+  },
+  "code-heals-memory-mcp": {
+    "id": "2416ce94ced1",
+    "status": "running",
+    "last_seen": "2025-10-29T11:17:49.157613",
+    "image": "code-heals-itself-memory-mcp:latest"
+  },
+  "gracious_euclid": {
+    "id": "585d0b66e5bf",
+    "status": "running",
+    "last_seen": "2025-10-28T11:55:08.225248",
+    "image": "unknown"
+  },
+  "reverent_franklin": {
+    "id": "23e2f319aea0",
+    "status": "running",
+    "last_seen": "2025-10-28T11:55:08.225248",
+    "image": "unknown"
+  },
+  "suspicious_albattani": {
+    "id": "294eb9e8654d",
+    "status": "running",
+    "last_seen": "2025-10-28T11:55:08.225248",
+    "image": "unknown"
+  },
+  "busy_chatelet": {
+    "id": "9d256a0e60d9",
+    "status": "running",
+    "last_seen": "2025-10-28T14:01:57.364014",
+    "image": "unknown"
+  },
+  "stupefied_easley": {
+    "id": "146c6b5f5ecd",
+    "status": "running",
+    "last_seen": "2025-10-28T14:01:57.364014",
+    "image": "unknown"
+  },
+  "cool_ramanujan": {
+    "id": "1a2d7a368484",
+    "status": "running",
+    "last_seen": "2025-10-28T14:01:57.364014",
+    "image": "unknown"
+  }
+}

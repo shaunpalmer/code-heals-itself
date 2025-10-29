@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import docker
 import asyncio
 import json
+import requests
+import os
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -33,6 +35,11 @@ DATA_DIR = Path("/data")
 DATA_DIR.mkdir(exist_ok=True)
 HEALTH_FILE = DATA_DIR / "health.json"
 ALERTS_FILE = DATA_DIR / "alerts.jsonl"
+INFERENCE_STATUS_FILE = DATA_DIR / "inference_status.json"
+
+# Inference endpoints
+PRIMARY_URL = os.getenv("PRIMARY_URL", "http://lmstudio:8080/v1")
+FALLBACK_URL = os.getenv("FALLBACK_URL", "http://host.docker.internal:1234/v1")
 
 class ContainerHealth:
     def __init__(self):
@@ -61,6 +68,60 @@ def log_alert(container_id, alert_type, message):
     with open(ALERTS_FILE, "a") as f:
         f.write(json.dumps(alert) + "\n")
     logger.warning(f"[{alert_type}] {container_id}: {message}")
+
+def check_inference_endpoint(url, timeout=2):
+    """Check if an inference endpoint is healthy"""
+    try:
+        response = requests.get(f"{url}/models", timeout=timeout)
+        return response.status_code == 200
+    except Exception as e:
+        logger.debug(f"Endpoint check failed for {url}: {e}")
+        return False
+
+async def check_lm_studio_health():
+    """Check LM Studio availability and update inference status"""
+    try:
+        primary_healthy = check_inference_endpoint(PRIMARY_URL)
+        fallback_healthy = check_inference_endpoint(FALLBACK_URL)
+        
+        # Determine active endpoint
+        if primary_healthy:
+            active_endpoint = PRIMARY_URL
+            active_source = "primary"
+        elif fallback_healthy:
+            active_endpoint = FALLBACK_URL
+            active_source = "fallback"
+        else:
+            active_endpoint = None
+            active_source = "none"
+        
+        # Log if there's a change
+        status_file_exists = INFERENCE_STATUS_FILE.exists()
+        if status_file_exists:
+            with open(INFERENCE_STATUS_FILE, "r") as f:
+                prev_status = json.load(f)
+            if prev_status.get("active_source") != active_source:
+                log_alert("lmstudio", "INFERENCE_FAILOVER", 
+                         f"Switched from {prev_status.get('active_source')} to {active_source}")
+        
+        # Save current status
+        status = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "primary_url": PRIMARY_URL,
+            "primary_healthy": primary_healthy,
+            "fallback_url": FALLBACK_URL,
+            "fallback_healthy": fallback_healthy,
+            "active_endpoint": active_endpoint,
+            "active_source": active_source
+        }
+        
+        with open(INFERENCE_STATUS_FILE, "w") as f:
+            json.dump(status, f, indent=2)
+        
+        logger.info(f"Inference health: primary={primary_healthy}, fallback={fallback_healthy}, active={active_source}")
+        
+    except Exception as e:
+        logger.error(f"LM Studio health check failed: {e}")
 
 async def monitor_containers():
     """Monitor all containers for health"""
@@ -100,6 +161,10 @@ async def monitor_containers():
                     log_alert(container_id, "UNPAUSE_FAILED", str(e))
         
         health.save()
+        
+        # Check LM Studio health
+        await check_lm_studio_health()
+        
         logger.info(f"Health check completed: {len(containers)} containers monitored")
     
     except Exception as e:
@@ -147,6 +212,23 @@ def get_health():
             "last_check": health.status,
             "file": str(HEALTH_FILE)
         }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/inference-status")
+def get_inference_status():
+    """Get current inference endpoint status"""
+    try:
+        if INFERENCE_STATUS_FILE.exists():
+            with open(INFERENCE_STATUS_FILE, "r") as f:
+                return json.load(f)
+        else:
+            return {
+                "status": "unknown",
+                "message": "No inference status recorded yet",
+                "primary_url": PRIMARY_URL,
+                "fallback_url": FALLBACK_URL
+            }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

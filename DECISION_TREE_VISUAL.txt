@@ -1,0 +1,177 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    SYSTEM DECISION TREE ARCHITECTURE                       ║
+║                        (What You Asked For)                                ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REBANKER RECOVERY TREE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Start Rebanker
+    │
+    ├─ IF running?
+    │   └─ ✅ YES → Continue to next service
+    │
+    └─ IF NOT running:
+        │
+        ├─ ATTEMPT 1: Add pyyaml to requirements.txt
+        │   │
+        │   ├─ Rebuild Docker image
+        │   │
+        │   ├─ Restart container
+        │   │
+        │   ├─ IF healthy?
+        │   │   └─ ✅ YES → Continue
+        │   │
+        │   └─ IF FAILED → Try next option
+        │
+        ├─ ATTEMPT 2: Direct pip install (inside running container)
+        │   │
+        │   ├─ docker exec pip install pyyaml
+        │   │
+        │   ├─ IF succeeds?
+        │   │   └─ ✅ YES → Continue
+        │   │
+        │   └─ IF FAILED → Try next option
+        │
+        ├─ ATTEMPT 3: Disable rebanker gracefully
+        │   │
+        │   ├─ Stop container
+        │   │
+        │   ├─ Comment in docker-compose
+        │   │
+        │   └─ ⚠️  Continue with Memory MCP + Watcher MCP
+        │
+        └─ IF ALL FAILED:
+            └─ 🔴 Log error, system continues anyway
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LM STUDIO HYBRID STRATEGY TREE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Start LM Studio Check
+    │
+    ├─ OPTION A: Check LOCAL LM Studio (host:1234)
+    │   │
+    │   ├─ curl http://localhost:1234/
+    │   │
+    │   ├─ IF responds?
+    │   │   └─ ✅ YES → Use LOCAL (PREFERRED)
+    │   │   └─ Docker containers use: http://host.docker.internal:1234/v1
+    │   │   └─ Continue
+    │   │
+    │   └─ IF FAILED → Try next option
+    │
+    ├─ OPTION B: Check CONTAINER LM Studio (docker:1234)
+    │   │
+    │   ├─ docker ps --filter "name=lmstudio" --filter "status=running"
+    │   │
+    │   ├─ IF running?
+    │   │   └─ ✅ YES → Use CONTAINER
+    │   │   └─ Continue
+    │   │
+    │   ├─ IF exited?
+    │   │   │
+    │   │   ├─ Check exit code
+    │   │   │
+    │   │   └─ IF exit 139 (model missing)?
+    │   │       └─ Try next option
+    │   │
+    │   └─ IF NOT running → Try next option
+    │
+    ├─ OPTION C: Start CONTAINER LM Studio anyway
+    │   │
+    │   ├─ docker compose up -d lmstudio
+    │   │
+    │   ├─ Wait 5 seconds
+    │   │
+    │   ├─ IF running now?
+    │   │   └─ ✅ YES → Use CONTAINER
+    │   │   └─ (will crash on model load, but monitored)
+    │   │   └─ Continue
+    │   │
+    │   └─ IF still crashed → Try next option
+    │
+    └─ OPTION D: Graceful Degradation
+        │
+        ├─ ⚠️  NO LM Studio available
+        │
+        ├─ Use Memory MCP + Watcher MCP
+        │
+        ├─ Log: "LM Studio unavailable, operating in reduced mode"
+        │
+        └─ Continue anyway
+            └─ System still operational, just degraded
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FULL SYSTEM STARTUP ORCHESTRATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+START SYSTEM
+    │
+    ├─ [1/6] CHECK DOCKER
+    │   ├─ IF running → ✅ Continue
+    │   └─ IF NOT → ❌ EXIT (fatal)
+    │
+    ├─ [2/6] CHECK MEMORY-MCP (CRITICAL)
+    │   ├─ IF running → ✅ Continue
+    │   └─ IF NOT → Try to start
+    │       └─ IF starts → ✅ Continue
+    │       └─ IF fails → ❌ EXIT (fatal)
+    │
+    ├─ [3/6] CHECK WATCHER-MCP (CRITICAL)
+    │   ├─ IF running → ✅ Continue
+    │   └─ IF NOT → Try to start
+    │       └─ IF starts → ✅ Continue
+    │       └─ IF fails → ❌ EXIT (fatal)
+    │
+    ├─ [4/6] CHECK REBANKER (OPTIONAL, FALLBACK AVAILABLE)
+    │   ├─ IF running → ✅ Continue
+    │   └─ IF NOT → EXECUTE Rebanker Recovery Tree (see above)
+    │       └─ Success or graceful failure → ⚠️ Continue
+    │
+    ├─ [5/6] CHECK LM STUDIO (HYBRID, MULTIPLE FALLBACKS)
+    │   ├─ IF available → ✅ Continue
+    │   └─ IF NOT → EXECUTE LM Studio Hybrid Tree (see above)
+    │       └─ Success or graceful degradation → ⚠️ Continue
+    │
+    ├─ [6/6] CHECK DASHBOARD
+    │   ├─ IF running → ✅ Continue
+    │   └─ IF NOT → Log warning, continue
+    │
+    └─ SYSTEM READY
+        └─ Report health status + next steps
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KEY PRINCIPLE: DECISION TREE PATTERN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NEVER: IF fails → ❌ CRASH
+
+ALWAYS:
+    IF succeeds
+        ✅ Continue
+    ELSE IF try fallback 1
+        ✅ Continue
+    ELSE IF try fallback 2
+        ✅ Continue
+    ELSE IF try fallback 3
+        ✅ Continue
+    ELSE
+        ⚠️ Degrade gracefully, keep running
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RESULT: SELF-HEALING SYSTEM
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE:
+    Component breaks → System down → Needs human fix ❌
+
+AFTER:
+    Component breaks → Try fix → Try fallback → Degrade gracefully → Continue ✅
+
+System automatically recovers from most failures without human intervention.

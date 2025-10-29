@@ -2092,3 +2092,141 @@
 2025-10-10 01:02:10,464 [INFO] 127.0.0.1 - - [10/Oct/2025 01:02:10] "[36mGET /assets/app.js HTTP/1.1[0m" 304 -
 2025-10-10 01:02:10,486 [INFO] 127.0.0.1 - - [10/Oct/2025 01:02:10] "GET /api/keepalive/status HTTP/1.1" 200 -
 2025-10-10 01:04:08,686 [INFO] 127.0.0.1 - - [10/Oct/2025 01:04:08] "GET /api/success-patterns/stats HTTP/1.1" 200 -
+2025-10-10 03:36:27,936 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:27] "GET / HTTP/1.1" 200 -
+2025-10-10 03:36:27,982 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:27] "GET /assets/style.css HTTP/1.1" 200 -
+2025-10-10 03:36:27,985 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:27] "GET /assets/app.js HTTP/1.1" 200 -
+2025-10-10 03:36:28,016 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:28] "GET /api/keepalive/status HTTP/1.1" 200 -
+2025-10-10 03:36:34,613 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:34] "GET /keepalive HTTP/1.1" 200 -
+2025-10-10 03:36:36,804 [INFO] 127.0.0.1 - - [10/Oct/2025 03:36:36] "POST /status/heartbeat HTTP/1.1" 200 -
+2025-10-14 13:54:33,119 [INFO] Starting heartbeat monitor...
+2025-10-14 13:54:33,119 [INFO] Heartbeat monitor started (30s interval)
+2025-10-14 13:54:33,121 [INFO] Auto-starting Keep-Alive...
+2025-10-14 13:54:33,122 [INFO] Keep-Alive started (400s interval)
+2025-10-14 13:54:33,122 [INFO] Dashboard Development Server Starting
+2025-10-14 13:54:33,122 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-14 13:54:33,122 [INFO] API endpoints ready on port 5000
+2025-10-14 13:54:33,122 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-14 13:54:33,122 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-14 13:54:33,147 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-14 13:54:33,147 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-14 13:54:56,554 [INFO] 127.0.0.1 - - [14/Oct/2025 13:54:56] "GET / HTTP/1.1" 200 -
+2025-10-14 13:54:56,569 [INFO] 127.0.0.1 - - [14/Oct/2025 13:54:56] "GET /assets/style.css HTTP/1.1" 200 -
+2025-10-14 13:54:56,570 [INFO] 127.0.0.1 - - [14/Oct/2025 13:54:56] "GET /assets/app.js HTTP/1.1" 200 -
+2025-10-14 13:54:56,667 [INFO] 127.0.0.1 - - [14/Oct/2025 13:54:56] "GET /api/keepalive/status HTTP/1.1" 200 -
+2025-10-14 13:54:56,808 [INFO] 127.0.0.1 - - [14/Oct/2025 13:54:56] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+2025-10-14 13:55:32,961 [INFO] 127.0.0.1 - - [14/Oct/2025 13:55:32] "GET /keepalive HTTP/1.1" 200 -
+2025-10-14 13:55:34,535 [INFO] 127.0.0.1 - - [14/Oct/2025 13:55:34] "POST /status/heartbeat HTTP/1.1" 200 -
+2025-10-14 13:56:56,495 [INFO] 127.0.0.1 - - [14/Oct/2025 13:56:56] "GET /status/metrics HTTP/1.1" 200 -
+2025-10-14 13:56:56,500 [INFO] 127.0.0.1 - - [14/Oct/2025 13:56:56] "GET /envelopes/latest HTTP/1.1" 200 -
+2025-10-14 13:56:59,410 [INFO] 127.0.0.1 - - [14/Oct/2025 13:56:59] "POST /debug/run HTTP/1.1" 200 -
+2025-10-14 13:57:13,100 [INFO] Shutdown signal received, cleaning up...
+2025-10-14 13:57:13,100 [INFO] Shutdown complete
+2025-10-27 11:12:52,155 [INFO] Starting heartbeat monitor...
+2025-10-27 11:12:52,156 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:12:52,166 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:12:52,177 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:12:52,178 [INFO] Dashboard Development Server Starting
+2025-10-27 11:12:52,178 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:12:52,178 [INFO] API endpoints ready on port 5000
+2025-10-27 11:12:52,179 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:12:52,179 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:12:52,192 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:12:52,193 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 11:12:52,679 [INFO] Starting heartbeat monitor...
+2025-10-27 11:12:52,680 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:12:52,688 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:12:52,698 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:12:52,699 [INFO] Dashboard Development Server Starting
+2025-10-27 11:12:52,699 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:12:52,700 [INFO] API endpoints ready on port 5000
+2025-10-27 11:12:52,700 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:12:52,700 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:12:52,708 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:12:52,708 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 11:57:31,431 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 11:57:31,436 [INFO] Shutdown complete
+2025-10-27 11:57:32,324 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 11:57:32,327 [INFO] Shutdown complete
+2025-10-27 11:57:40,966 [INFO] Starting heartbeat monitor...
+2025-10-27 11:57:40,967 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:57:40,977 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:57:40,986 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:57:40,986 [INFO] Dashboard Development Server Starting
+2025-10-27 11:57:40,987 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:57:40,987 [INFO] API endpoints ready on port 5000
+2025-10-27 11:57:40,987 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:57:40,988 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:57:40,998 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:57:40,999 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 11:57:41,124 [INFO] Starting heartbeat monitor...
+2025-10-27 11:57:41,125 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:57:41,134 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:57:41,143 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:57:41,144 [INFO] Dashboard Development Server Starting
+2025-10-27 11:57:41,144 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:57:41,144 [INFO] API endpoints ready on port 5000
+2025-10-27 11:57:41,145 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:57:41,145 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:57:41,152 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:57:41,153 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 11:57:48,822 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 11:57:48,822 [INFO] Shutdown complete
+2025-10-27 11:57:49,428 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 11:57:49,428 [INFO] Shutdown complete
+2025-10-27 11:57:57,750 [INFO] Starting heartbeat monitor...
+2025-10-27 11:57:57,751 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:57:57,760 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:57:57,770 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:57:57,770 [INFO] Dashboard Development Server Starting
+2025-10-27 11:57:57,770 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:57:57,771 [INFO] API endpoints ready on port 5000
+2025-10-27 11:57:57,771 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:57:57,771 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:57:57,779 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:57:57,779 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 11:57:58,074 [INFO] Starting heartbeat monitor...
+2025-10-27 11:57:58,074 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 11:57:58,083 [INFO] Auto-starting Keep-Alive...
+2025-10-27 11:57:58,091 [INFO] Keep-Alive started (400s interval)
+2025-10-27 11:57:58,092 [INFO] Dashboard Development Server Starting
+2025-10-27 11:57:58,092 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 11:57:58,093 [INFO] API endpoints ready on port 5000
+2025-10-27 11:57:58,093 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 11:57:58,093 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 11:57:58,100 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 11:57:58,101 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 12:15:01,409 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 12:15:01,409 [INFO] Shutdown complete
+2025-10-27 12:15:02,053 [INFO] Shutdown signal received, cleaning up...
+2025-10-27 12:15:02,054 [INFO] Shutdown complete
+2025-10-27 12:15:15,045 [INFO] Starting heartbeat monitor...
+2025-10-27 12:15:15,046 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 12:15:15,060 [INFO] Auto-starting Keep-Alive...
+2025-10-27 12:15:15,071 [INFO] Keep-Alive started (400s interval)
+2025-10-27 12:15:15,073 [INFO] Dashboard Development Server Starting
+2025-10-27 12:15:15,073 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 12:15:15,074 [INFO] API endpoints ready on port 5000
+2025-10-27 12:15:15,075 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 12:15:15,075 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 12:15:15,086 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 12:15:15,089 [INFO] [33mPress CTRL+C to quit[0m
+2025-10-27 12:15:15,399 [INFO] Starting heartbeat monitor...
+2025-10-27 12:15:15,400 [INFO] Heartbeat monitor started (30s interval)
+2025-10-27 12:15:15,410 [INFO] Auto-starting Keep-Alive...
+2025-10-27 12:15:15,419 [INFO] Keep-Alive started (400s interval)
+2025-10-27 12:15:15,420 [INFO] Dashboard Development Server Starting
+2025-10-27 12:15:15,420 [INFO] Dashboard UI: http://127.0.0.1:5000
+2025-10-27 12:15:15,421 [INFO] API endpoints ready on port 5000
+2025-10-27 12:15:15,421 [INFO] Health check: http://127.0.0.1:5000/health
+2025-10-27 12:15:15,421 [INFO] Auto-restart enabled - server will recover from crashes
+2025-10-27 12:15:15,429 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on http://127.0.0.1:5000
+2025-10-27 12:15:15,429 [INFO] [33mPress CTRL+C to quit[0m

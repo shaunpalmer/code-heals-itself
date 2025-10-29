@@ -1,0 +1,102 @@
+PHP Branch Catch-Up Plan
+Overview
+The Python branch is significantly more advanced than the PHP branch. The PHP implementation currently has basic AI debugging functionality but lacks the sophisticated features developed in Python. This document outlines what needs to be built in PHP to achieve feature parity.
+
+Current PHP Branch Status
+Basic AI debugging script (ai-debugging.php)
+Minimal LLM integration
+No dashboard or MCP server
+No iterative healing loops
+No knowledge base or re-banker analysis
+Required Features to Build
+1. Core Healing System
+Current: Basic single-pass debugging
+Needed:
+
+Implement iterative healing loop (similar to demo_full_healing_cycle.py)
+Add temperature ramping (0.5 → 0.6 → 0.7) for multi-attempt fixes
+Circuit breaker logic to prevent infinite loops
+Error classification (syntax vs semantic vs logic)
+2. Re-Banker Analysis Layer
+Current: None
+Needed:
+
+Error parsing and classification system
+Bug pattern detection (e.g., import errors, type mismatches)
+Semantic analysis to provide LLM with contextual hints
+Integration with healing loop to generate structured prompts
+3. LLM Integration
+Current: Basic API calls
+Needed:
+
+Support for multiple providers (OpenAI, LM Studio)
+Proper async handling for long-running requests
+Token management and cost tracking
+Streaming response support
+Error handling for timeouts and rate limits
+4. Knowledge Base System
+Current: None
+Needed:
+
+Success pattern storage (similar to envelope_storage.py)
+Pattern retrieval for similar bug types
+Confidence scoring and gold standard patterns
+Database integration (SQLite or similar)
+5. MCP Dashboard Server
+Current: Partially implemented but not connected
+Needed:
+
+Complete MCP server setup (similar to dashboard_dev_server.py)
+Real-time status updates
+Knowledge base visualization
+Healing session monitoring
+CORS configuration for web access
+6. Test Suite and Validation
+Current: Basic tests
+Needed:
+
+Comprehensive test runners (similar to run_multi_attempt_test.py)
+Bug complexity levels (simple, medium, extreme, nightmare)
+Automated validation of fixes
+Performance metrics and success rates
+7. Configuration and Settings
+Current: Hardcoded values
+Needed:
+
+Settings management (similar to llm_settings.py)
+Environment-specific configurations
+Model selection and parameter tuning
+API key management
+8. Error Handling and Logging
+Current: Basic error output
+Needed:
+
+Structured logging system
+Error categorization and reporting
+Recovery mechanisms for failed healing attempts
+Audit trails for debugging sessions
+Implementation Priority
+High Priority: Core healing loop and LLM integration
+Medium Priority: Re-banker analysis and knowledge base
+Low Priority: Dashboard UI and advanced features
+Estimated Effort
+Core healing system: 2-3 weeks
+Re-banker layer: 1-2 weeks
+LLM integration: 1 week
+Knowledge base: 1 week
+MCP dashboard: 2 weeks
+Testing and validation: 1 week
+Dependencies
+PHP 8.1+ with async support
+Composer for package management
+Database (SQLite recommended)
+Web server for MCP dashboard
+Next Steps
+Review current PHP codebase structure
+Set up basic project scaffolding
+Implement core healing loop
+Add LLM provider support
+Build re-banker analysis
+Develop knowledge base
+Create MCP dashboard
+Comprehensive testing

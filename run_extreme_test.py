@@ -67,14 +67,20 @@ async def main():
         print("❌ LLM disabled!")
         return
     
+    # Use larger model for extreme difficulty reasoning
+    # Extreme bugs need 32B+ models, not 7B
+    model_name = settings.get('model_name', 'qwen3-32b')
+    if model_name in ['qwen2.5-coder-7b-instruct', 'hermes-3-llama-3.2-3b']:
+        model_name = 'qwen3-32b'  # Upgrade to 32B for complex reasoning
+    
     client = LLMClient(
         provider=settings.get('provider', 'lmstudio'),
         api_key=settings.get('api_key', 'not-needed'),
         base_url=settings.get('base_url', 'http://127.0.0.1:1234/v1'),
-        model_name=settings.get('model_name', 'qwen2.5-coder-7b-instruct'),
-        temperature=0.4,  # Start a bit higher for complex bugs
+        model_name=model_name,
+        temperature=0.5,  # Balanced for reasoning on complex bugs
         max_tokens=settings.get('max_tokens', 5000),  # Use settings value
-        timeout=settings.get('timeout', 120)  # Use settings timeout
+        timeout=settings.get('timeout', 180)  # 3 minutes for big models
     )
     
     print("📝 BUGGY CODE HAS:")

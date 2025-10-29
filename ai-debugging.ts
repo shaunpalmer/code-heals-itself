@@ -31,6 +31,15 @@
  * See: "Fitting in with the crowd.md" for integration patterns and standards.
  */
 import {
+  EnvelopeStorage, InMemoryEnvelopeQueue, SQLiteEnvelopeStorage
+} from "./utils/typescript/envelope_storage";
+import {
+  HealingPipeline, CodePreprocessor
+} from "./utils/typescript/healing_pipeline";
+import {
+  Rebanker, EscalationObserver
+} from "./utils/typescript/rebanker";
+import {
   UnifiedConfidenceScorer, DualCircuitBreaker, ErrorType, ConfidenceScore
 } from "./utils/typescript/confidence_scoring";
 import {

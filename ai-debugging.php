@@ -1,11 +1,11 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/confidence_scoring.php';
-require_once __DIR__ . '/cascading_error_handler.php';
-require_once __DIR__ . '/envelope.php';
-require_once __DIR__ . '/strategy.php';
-require_once __DIR__ . '/human_debugging.php';
+require_once __DIR__ . '/utils/php/confidence_scoring.php';
+require_once __DIR__ . '/utils/php/cascading_error_handler.php';
+require_once __DIR__ . '/utils/php/envelope.php';
+require_once __DIR__ . '/utils/php/strategy.php';
+require_once __DIR__ . '/utils/php/human_debugging.php';
 
 // PHP Agent components
 require_once __DIR__ . '/agents/php-agent/HealingPipeline.php';
