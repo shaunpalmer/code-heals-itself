@@ -8,28 +8,45 @@ declare(strict_types=1);
 
 namespace CodeHealsItself\Api\Handlers;
 
+use CodeHealsItself\PhpAgent\Rebanker;
+
 class ClassifyHandler {
     public function handle(array $payload): array {
         try {
-            // Validate payload
-            if (empty($payload['error_message'])) {
+            // Validate payload — accept 'errorMessage' or 'error_message'
+            $errorMessage = $payload['errorMessage'] ?? $payload['error_message'] ?? null;
+            
+            if (empty($errorMessage)) {
                 return [
                     'success' => false,
-                    'error' => 'Missing required field: error_message',
+                    'error' => 'Missing required field: errorMessage',
                 ];
             }
 
-            // For now, return a mock classification response
-            // In production, this would call Rebanker
+            // Create Rebanker and classify the error
+            $rebanker = new Rebanker();
+            $classification = $rebanker->classifyError(
+                errorMessage: $errorMessage,
+                errorType: 'UNKNOWN', // Will be inferred from message
+                stackTrace: '',
+                context: null
+            );
+
+            // Transform ErrorClassification to response structure
+            // Convert difficulty enum to numeric value
+            $difficultyMap = [
+                'EASY' => 0.35,
+                'MEDIUM' => 0.65,
+                'HARD' => 0.85,
+            ];
+            $difficultyNumeric = $difficultyMap[$classification->difficulty->value] ?? 0.65;
+
             return [
                 'success' => true,
-                'classification' => [
-                    'difficulty' => 'MEDIUM',
-                    'confidence' => 0.75,
-                    'error_type' => 'LogicError',
-                    'cascade_risk' => 0.3,
-                ],
-                'hint' => 'Check variable initialization in conditional branches',
+                'difficulty' => $difficultyNumeric,
+                'confidence' => $classification->confidence,
+                'error_type' => $classification->taxonomy,
+                'hints' => $classification->reasoning,
             ];
         } catch (\Exception $e) {
             return [
