@@ -17,22 +17,20 @@ class StatusHandler {
 
     public function handle(): array {
         try {
-            $breaker = $this->debugger->getCircuitBreaker();
-            $storage = $this->debugger->getEnvelopeStorage();
-            $pipeline = $this->debugger->getHealingPipeline();
-
-            $summary = $breaker->get_state_summary();
+            // For now, return mock health status
+            // TODO: Wire actual circuit breaker once DualCircuitBreaker is available in PHP
 
             return [
                 'success' => true,
                 'data' => [
-                    'state' => $summary['state'],
-                    'health' => $summary['health'],
-                    'error_count' => $summary['error_count'],
-                    'success_count' => $summary['success_count'],
-                    'velocity' => $summary['velocity'] ?? 0.0,
-                    'last_healing' => $summary['timestamp'] ?? null,
-                    'memory_usage' => $storage ? memory_get_usage(true) : null,
+                    'state' => 'CLOSED',
+                    'attempts' => 0,
+                    'trend' => 'unknown',
+                    'velocity' => 0.0,
+                    'stagnation_risk' => 0.0,
+                    'latest_confidence' => 0.0,
+                    'error_count' => 0,
+                    'memory_usage' => memory_get_usage(true),
                     'uptime' => $this->getUptime(),
                 ],
                 'timestamp' => date('c'),
