@@ -2,6 +2,13 @@
 
 A production-ready, cross-language AI-driven system for autonomous code healing with advanced safety mechanisms, confidence scoring, and error classification.
 
+# Self-Healing Code System v2.0
+
+A production-ready, cross-language AI-driven system for autonomous code healing with advanced safety mechanisms, confidence scoring, and error classification.
+
+[![Watch the video](https://img.youtube.com/vi/W9ZrfjRl0UU/0.jpg)](https://youtu.be/W9ZrfjRl0UU)
+
+
 ## 🎯 System Overview
 
 This system implements a sophisticated self-healing code framework that can:
