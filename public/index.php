@@ -32,7 +32,10 @@ try {
     // Parse request
     $method = $_SERVER['REQUEST_METHOD'];
     $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-    $path = str_replace('/api', '', $path); // Remove /api prefix
+    // Remove ONLY a leading /api to support Apache aliasing without breaking other paths
+    if (is_string($path) && str_starts_with($path, '/api')) {
+        $path = substr($path, 4) ?: '/';
+    }
 
     // Get body
     $body = file_get_contents('php://input');
@@ -61,10 +64,29 @@ try {
         $result = $handler->handle($payload);
     }
 
-    // Return response
-    echo APIResponse::json($result, $result['success'] ? 200 : 400);
+    // Return response using proper wrapper
+    if (($result['success'] ?? false) === true) {
+        // Extract data payload and wrap it properly
+        $payload = $result;
+        unset($payload['success']);
+        echo APIResponse::success($payload, 200);
+    } else {
+        // Return error response with optional details for debugging
+        $errorMsg = $result['error'] ?? 'Unknown error';
+        $details  = $result['details'] ?? null;
+        if ($details) {
+            echo APIResponse::json([
+                'success' => false,
+                'error' => $errorMsg,
+                'details' => $details,
+                'timestamp' => date('c'),
+            ], 400);
+        } else {
+            echo APIResponse::error($errorMsg, 400);
+        }
+    }
 
-} catch (\Exception $e) {
+} catch (\Throwable $e) {
     echo APIMiddleware::handleException($e);
     exit(1);
 }

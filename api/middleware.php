@@ -53,16 +53,22 @@ class APIValidator {
 
     public static function validateContentType(string $method): void {
         if (in_array($method, ['POST', 'PUT', 'PATCH'])) {
-            $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
-            if (strpos($contentType, 'application/json') === false) {
-                throw new \Exception('Content-Type must be application/json');
+            // Some SAPIs (built-in server, proxies) populate HTTP_CONTENT_TYPE instead
+            $contentType = $_SERVER['CONTENT_TYPE']
+                ?? $_SERVER['HTTP_CONTENT_TYPE']
+                ?? '';
+            // Be lenient: if header missing but body decodes as JSON later, allow it
+            if ($contentType !== '') {
+                if (stripos($contentType, 'application/json') === false) {
+                    throw new \Exception('Content-Type must be application/json');
+                }
             }
         }
     }
 }
 
 class APIMiddleware {
-    public static function handleException(\Exception $e): string {
+    public static function handleException(\Throwable $e): string {
         error_log('[API ERROR] ' . $e->getMessage());
         return APIResponse::error($e->getMessage(), 500);
     }

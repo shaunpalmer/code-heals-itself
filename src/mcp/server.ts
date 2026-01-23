@@ -5,15 +5,9 @@
 import { AIDebugger } from '../../ai-debugging';
 import { ErrorType } from '../../utils/typescript/confidence_scoring';
 import ChatMessageHistoryAdapter from '../../utils/typescript/memory_adapter';
-// Prefer root import (SDK may not expose subpath exports depending on version)
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-let mcp: any; try { mcp = require('@modelcontextprotocol/sdk'); } catch { mcp = {}; }
-// Types guarded with fallback shims
-const { StdioServerTransport, Server, jsonSchema } = mcp;
-if (!Server || !StdioServerTransport) {
-  // eslint-disable-next-line no-console
-  console.error('[mcp] Required classes not found in @modelcontextprotocol/sdk. Check installed version.');
-}
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
 const debuggerInstance = new AIDebugger();
 const chats = new Map<string, ChatMessageHistoryAdapter>();
@@ -44,61 +38,90 @@ function searchRag(query: string, limit = 3) {
 }
 
 // Build MCP server
-const server = Server ? new Server({
+const server = new McpServer({
   name: 'self-heal-mcp',
-  version: '0.1.0',
-  capabilities: {
-    tools: {
-      'debug.run': {
-        description: 'Attempt a self-healing debug run producing patch envelope.',
-        inputSchema: jsonSchema({
-          type: 'object',
-          required: ['error_type', 'message', 'patch_code', 'original_code'],
-          properties: {
-            error_type: { type: 'string', enum: ['SYNTAX', 'LOGIC', 'RUNTIME', 'PERFORMANCE', 'SECURITY'] },
-            message: { type: 'string' },
-            patch_code: { type: 'string' },
-            original_code: { type: 'string' },
-            logits: { type: 'array', items: { type: 'number' } },
-            sessionId: { type: 'string' },
-            maxAttempts: { type: 'integer', minimum: 1, default: 1 }
-          },
-          additionalProperties: false
-        })
-      },
-      'rag.search': {
-        description: 'Search lightweight in-memory RAG index for context.',
-        inputSchema: jsonSchema({
-          type: 'object',
-          required: ['query'],
-          properties: {
-            query: { type: 'string' },
-            limit: { type: 'integer', minimum: 1, maximum: 10, default: 3 }
-          },
-          additionalProperties: false
-        })
-      },
-      'rag.add': {
-        description: 'Add a document to the in-memory RAG index (ephemeral).',
-        inputSchema: jsonSchema({
-          type: 'object',
-          required: ['id', 'content'],
-          properties: {
-            id: { type: 'string' },
-            content: { type: 'string' },
-            tags: { type: 'array', items: { type: 'string' }, default: [] }
-          },
-          additionalProperties: false
-        })
-      }
-    }
+  version: '0.1.0'
+});
+const registerTool: any = (server as any).registerTool.bind(server);
+
+registerTool(
+  'debug.run',
+  {
+    description: 'Attempt a self-healing debug run producing patch envelope.',
+    inputSchema: {
+      error_type: z.enum(['SYNTAX', 'LOGIC', 'RUNTIME', 'PERFORMANCE', 'SECURITY']),
+      message: z.string(),
+      patch_code: z.string(),
+      original_code: z.string(),
+      logits: z.array(z.number()).optional(),
+      sessionId: z.string().optional(),
+      maxAttempts: z.number().int().min(1).optional()
+    } as any
+  },
+  async (args: any) => {
+    const { error_type, message, patch_code, original_code, logits, sessionId, maxAttempts } = args || {};
+    const errorType = (error_type || 'SYNTAX') as keyof typeof ErrorType;
+    const et = ErrorType[errorType] ?? ErrorType.SYNTAX;
+    const chat = getChat(sessionId || 'default');
+    const result = await debuggerInstance.attemptWithBackoff(
+      et,
+      String(message || ''),
+      String(patch_code || ''),
+      String(original_code || ''),
+      Array.isArray(logits) ? logits : [],
+      { maxAttempts: Math.max(1, Number(maxAttempts || 1)), sessionId, chatAdapter: chat }
+    );
+    return { content: [{ type: 'json', data: { action: result.action, envelope: result.envelope, extras: result.extras } }] };
   }
-}) : null;
+);
+
+registerTool(
+  'rag.search',
+  {
+    description: 'Search lightweight in-memory RAG index for context.',
+    inputSchema: {
+      query: z.string(),
+      limit: z.number().int().min(1).max(10).optional()
+    } as any
+  },
+  async (args: any) => {
+    const { query, limit } = args || {};
+    const q = String(query || '').trim();
+    if (!q) return { content: [{ type: 'json', data: { results: [] } }] };
+    const results = searchRag(q, Math.max(1, Math.min(10, Number(limit || 3))));
+    return { content: [{ type: 'json', data: { results } }] };
+  }
+);
+
+registerTool(
+  'rag.add',
+  {
+    description: 'Add a document to the in-memory RAG index (ephemeral).',
+    inputSchema: {
+      id: z.string(),
+      content: z.string(),
+      tags: z.array(z.string()).optional()
+    } as any
+  },
+  async (args: any) => {
+    const { id, content, tags } = args || {};
+    const docId = String(id || '').trim();
+    const docContent = String(content || '').trim();
+    if (!docId || !docContent) {
+      return { content: [{ type: 'json', data: { added: false, reason: 'Missing id or content' } }] };
+    }
+    const docTags = Array.isArray(tags) ? tags.map(t => String(t)) : [];
+    const existingIdx = RAG_INDEX.findIndex(d => d.id === docId);
+    if (existingIdx >= 0) RAG_INDEX[existingIdx] = { id: docId, content: docContent, tags: docTags };
+    else RAG_INDEX.push({ id: docId, content: docContent, tags: docTags });
+    return { content: [{ type: 'json', data: { added: true, size: RAG_INDEX.length } }] };
+  }
+);
 
 // Lightweight probe mode: if --probe passed, print tool list JSON and exit.
 if (process.argv.includes('--probe')) {
   try {
-    const tools = server ? Object.keys((server as any).capabilities?.tools || {}) : [];
+    const tools = Object.keys((server as any)._registeredTools || {});
     // eslint-disable-next-line no-console
     console.log(JSON.stringify({ mcp: true, tools }));
     process.exit(0);
@@ -109,46 +132,7 @@ if (process.argv.includes('--probe')) {
   }
 }
 
-if (server) server.setRequestHandler('tools/call', async (req: any) => {
-  const { name, input } = req.params;
-  if (name === 'debug.run') {
-    const body: any = input || {};
-    const errorType = (body.error_type || 'SYNTAX') as keyof typeof ErrorType;
-    const et = ErrorType[errorType] ?? ErrorType.SYNTAX;
-    const chat = getChat(body.sessionId || 'default');
-    const result = await debuggerInstance.attemptWithBackoff(
-      et,
-      String(body.message || ''),
-      String(body.patch_code || ''),
-      String(body.original_code || ''),
-      Array.isArray(body.logits) ? body.logits : [],
-      { maxAttempts: Math.max(1, body.maxAttempts || 1), sessionId: body.sessionId, chatAdapter: chat }
-    );
-    return { content: [{ type: 'json', data: { action: result.action, envelope: result.envelope, extras: result.extras } }] };
-  }
-  if (name === 'rag.search') {
-    const body: any = input || {};
-    const query = String(body.query || '').trim();
-    if (!query) return { content: [{ type: 'json', data: { results: [] } }] };
-    const results = searchRag(query, Math.max(1, Math.min(10, body.limit || 3)));
-    return { content: [{ type: 'json', data: { results } }] };
-  }
-  if (name === 'rag.add') {
-    const body: any = input || {};
-    const id = String(body.id || '').trim();
-    const content = String(body.content || '').trim();
-    if (!id || !content) return { content: [{ type: 'json', data: { added: false, reason: 'Missing id or content' } }] };
-    const tags = Array.isArray(body.tags) ? body.tags.map((t: any) => String(t)) : [];
-    const existingIdx = RAG_INDEX.findIndex(d => d.id === id);
-    if (existingIdx >= 0) RAG_INDEX[existingIdx] = { id, content, tags };
-    else RAG_INDEX.push({ id, content, tags });
-    return { content: [{ type: 'json', data: { added: true, size: RAG_INDEX.length } }] };
-  }
-  throw new Error('Unknown tool: ' + name);
-});
-
 async function main() {
-  if (!server || !StdioServerTransport) return;
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // eslint-disable-next-line no-console

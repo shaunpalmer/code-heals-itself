@@ -27,6 +27,7 @@
     "start": "node dist/index.js",
     "start:api": "node dist/src/server/api.js",
     "start:mcp": "node dist/src/mcp/server.js",
+    "start:mcp:php": "node dist/src/mcp/php-proxy.js",
     "status": "node scripts/status.js",
     "ensure:api": "node scripts/ensure-api-server.js",
     "integrate:auto": "node scripts/auto-integrate.js",
@@ -47,7 +48,7 @@
   "dependencies": {
     "@agent-infra/logger": "^0.0.2-beta.2",
     "@langchain/core": "^0.3.76",
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.20.2",
     "chalk": "^4.1.2",
     "inquirer": "^8.2.5",
     "ora": "^5.4.1",
